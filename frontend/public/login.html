@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=1280"/>
+<title>Sign in — Attestr</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --bg:#f9f9f7;--bg2:#f2f2ef;--surface:#fff;--bd:#e4e4df;
+  --ink:#0d0d0c;--ink2:#3d3d3a;--ink3:#8a8a85;
+  --accent:#1a6bff;--accent2:#0047d9;
+}
+[data-theme="dark"]{
+  --bg:#0c0c0b;--bg2:#131312;--surface:#1a1a18;--bd:#2a2a27;
+  --ink:#f2f2ee;--ink2:#b8b8b2;--ink3:#5a5a55;
+  --accent:#3b82f6;--accent2:#2563eb;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{
+  background:var(--bg);color:var(--ink);
+  font-family:'DM Sans',sans-serif;
+  min-width:1280px;
+  min-height:100vh;
+  display:grid;
+  grid-template-columns:1fr 1fr;
+}
+
+/* LEFT PANEL */
+.left-panel {
+  display:flex;flex-direction:column;
+  justify-content:space-between;
+  padding:40px 56px;
+  border-right:1px solid var(--bd);
+  min-height:100vh;
+}
+.left-top{display:flex;align-items:center;justify-content:space-between;}
+.logo{
+  font-family:'Syne',sans-serif;
+  font-size:17px;font-weight:800;
+  color:var(--ink);text-decoration:none;
+  letter-spacing:-0.5px;
+}
+.logo span{color:var(--accent);}
+.theme-btn{
+  width:34px;height:34px;border-radius:8px;
+  border:1px solid var(--bd);background:var(--surface);
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+  font-size:15px;color:var(--ink2);
+  transition:background 0.15s;
+}
+.theme-btn:hover{background:var(--bg2);}
+
+.form-area{
+  width:100%;max-width:400px;
+  margin:0 auto;
+}
+.form-eyebrow{
+  font-family:'DM Mono',monospace;
+  font-size:10.5px;font-weight:500;
+  letter-spacing:2px;text-transform:uppercase;
+  color:var(--accent);
+  margin-bottom:12px;
+}
+.form-title{
+  font-family:'Syne',sans-serif;
+  font-size:28px;font-weight:800;
+  letter-spacing:-0.8px;
+  color:var(--ink);
+  margin-bottom:8px;
+}
+.form-sub{
+  font-size:13.5px;color:var(--ink2);font-weight:300;
+  margin-bottom:36px;line-height:1.6;
+}
+.form-label{
+  display:block;
+  font-size:12px;font-weight:500;
+  color:var(--ink2);
+  margin-bottom:8px;
+  letter-spacing:0.2px;
+}
+.cert-area{
+  width:100%;
+  height:180px;
+  background:var(--bg2);
+  border:1px solid var(--bd);
+  border-radius:10px;
+  padding:14px;
+  font-family:'DM Mono',monospace;
+  font-size:11px;
+  color:var(--ink);
+  resize:none;
+  outline:none;
+  transition:border-color 0.15s,box-shadow 0.15s;
+  line-height:1.6;
+}
+.cert-area:focus{
+  border-color:var(--accent);
+  box-shadow:0 0 0 3px rgba(26,107,255,0.1);
+}
+.cert-area::placeholder{color:var(--ink3);}
+.form-hint{
+  font-size:11.5px;color:var(--ink3);
+  margin-top:8px;
+  display:flex;align-items:center;gap:6px;
+}
+.submit-btn{
+  width:100%;margin-top:20px;
+  font-family:'Syne',sans-serif;
+  font-size:14px;font-weight:700;
+  background:var(--ink);color:var(--bg);
+  border:none;padding:14px;
+  border-radius:10px;cursor:pointer;
+  transition:opacity 0.15s,transform 0.15s;
+  position:relative;overflow:hidden;
+}
+.submit-btn:hover{opacity:0.88;transform:translateY(-1px);}
+.submit-btn:active{transform:translateY(0);}
+.submit-btn.loading{opacity:0.6;pointer-events:none;}
+
+.error-box{
+  margin-top:14px;
+  padding:12px 14px;
+  background:rgba(224,51,51,0.06);
+  border:1px solid rgba(224,51,51,0.2);
+  border-radius:8px;
+  font-size:12.5px;color:#c53030;
+  display:none;
+}
+.error-box.show{display:block;}
+
+.divider{
+  display:flex;align-items:center;gap:12px;
+  margin:24px 0;
+}
+.divider::before,.divider::after{
+  content:'';flex:1;height:1px;background:var(--bd);
+}
+.divider span{font-size:11.5px;color:var(--ink3);}
+
+.demo-orgs{
+  display:grid;grid-template-columns:1fr 1fr;gap:8px;
+}
+.demo-org-btn{
+  padding:10px 14px;
+  background:var(--surface);
+  border:1px solid var(--bd);
+  border-radius:8px;cursor:pointer;
+  text-align:left;
+  transition:border-color 0.15s,background 0.15s;
+  display:flex;align-items:center;gap:10px;
+}
+.demo-org-btn:hover{border-color:var(--accent);background:var(--bg2);}
+.demo-org-icon{
+  width:28px;height:28px;border-radius:6px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:13px;flex-shrink:0;
+}
+.demo-org-name{font-size:12.5px;font-weight:500;color:var(--ink);}
+.demo-org-role{font-size:10.5px;color:var(--ink3);}
+
+.left-footer{
+  font-size:11.5px;color:var(--ink3);
+  display:flex;align-items:center;gap:16px;
+}
+.left-footer a{color:var(--ink3);text-decoration:none;}
+.left-footer a:hover{color:var(--ink2);}
+
+/* RIGHT PANEL */
+.right-panel{
+  background:var(--bg2);
+  display:flex;flex-direction:column;
+  justify-content:center;align-items:center;
+  padding:60px;
+  min-height:100vh;
+  position:relative;
+  overflow:hidden;
+}
+.right-panel::before{
+  content:'';
+  position:absolute;top:0;left:0;right:0;bottom:0;
+  background:radial-gradient(ellipse at 60% 30%, rgba(26,107,255,0.06), transparent 60%);
+}
+.right-content{
+  position:relative;z-index:1;
+  max-width:440px;width:100%;
+}
+.right-label{
+  font-family:'DM Mono',monospace;
+  font-size:10px;letter-spacing:2px;text-transform:uppercase;
+  color:var(--ink3);margin-bottom:24px;
+}
+.feature-list{display:flex;flex-direction:column;gap:12px;margin-bottom:36px;}
+.feature-item{
+  display:flex;gap:12px;align-items:flex-start;
+  padding:16px;
+  background:var(--surface);
+  border:1px solid var(--bd);
+  border-radius:10px;
+}
+.feat-icon{
+  width:32px;height:32px;border-radius:8px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:14px;flex-shrink:0;margin-top:1px;
+}
+.feat-title{font-size:13px;font-weight:500;color:var(--ink);margin-bottom:3px;}
+.feat-desc{font-size:12px;color:var(--ink2);line-height:1.5;}
+
+.cert-explainer{
+  padding:16px;
+  background:var(--surface);
+  border:1px solid var(--bd);
+  border-radius:10px;
+  font-family:'DM Mono',monospace;
+  font-size:10px;
+  color:var(--ink3);
+  line-height:1.8;
+}
+.cert-explainer .ce-line{display:flex;gap:8px;}
+.ce-num{color:var(--ink3);user-select:none;width:16px;flex-shrink:0;}
+.ce-code{color:var(--ink2);}
+.ce-comment{color:var(--accent);opacity:0.7;}
+
+/* ANIM */
+@keyframes fadeUp{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:translateY(0);}}
+.form-area{animation:fadeUp 0.5s ease forwards;}
+.right-content{animation:fadeUp 0.6s 0.1s ease both;}
+</style>
+</head>
+<body>
+
+<div class="left-panel">
+  <div class="left-top">
+    <a class="logo" href="/">Att<span>e</span>str</a>
+    <button class="theme-btn" id="themeBtn">☾</button>
+  </div>
+
+  <div class="form-area">
+    <div class="form-eyebrow">Certificate Authentication</div>
+    <h1 class="form-title">Sign in</h1>
+    <p class="form-sub">No passwords. Your X.509 certificate proves your identity. Paste your certificate PEM below.</p>
+
+    <label class="form-label">Certificate PEM</label>
+    <textarea class="cert-area" id="certPem" placeholder="-----BEGIN CERTIFICATE-----
+MIICKDCCAc6gAwIBAgIU...
+-----END CERTIFICATE-----"></textarea>
+    <div class="form-hint">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5.5" stroke="currentColor" stroke-opacity="0.4"/><path d="M6 5v4M6 4v.5" stroke="currentColor" stroke-linecap="round"/></svg>
+      Your private key never leaves your device
+    </div>
+
+    <button class="submit-btn" id="submitBtn" onclick="handleLogin()">
+      Verify certificate and sign in
+    </button>
+
+    <div class="error-box" id="errorBox"></div>
+
+    <div class="divider"><span>or sign in as demo org</span></div>
+
+    <div class="demo-orgs">
+      <button class="demo-org-btn" onclick="loginAs('ca_admin')">
+        <div class="demo-org-icon" style="background:rgba(217,119,6,0.1)">🔑</div>
+        <div>
+          <div class="demo-org-name">CA Admin</div>
+          <div class="demo-org-role">Trust anchor</div>
+        </div>
+      </button>
+      <button class="demo-org-btn" onclick="loginAs('Elastic')">
+        <div class="demo-org-icon" style="background:rgba(26,107,255,0.1)">🏢</div>
+        <div>
+          <div class="demo-org-name">Elastic</div>
+          <div class="demo-org-role">Auditor</div>
+        </div>
+      </button>
+      <button class="demo-org-btn" onclick="loginAs('Grammarly')">
+        <div class="demo-org-icon" style="background:rgba(13,158,110,0.1)">🏬</div>
+        <div>
+          <div class="demo-org-name">Grammarly</div>
+          <div class="demo-org-role">Vendor</div>
+        </div>
+      </button>
+      <button class="demo-org-btn" onclick="loginAs('Plaid')">
+        <div class="demo-org-icon" style="background:rgba(13,158,110,0.1)">🏦</div>
+        <div>
+          <div class="demo-org-name">Plaid</div>
+          <div class="demo-org-role">Vendor</div>
+        </div>
+      </button>
+    </div>
+  </div>
+
+  <div class="left-footer">
+    <span>© 2026 Attestr</span>
+    <a href="/">Home</a>
+    <a href="/demo/merkle">Live demo</a>
+  </div>
+</div>
+
+<div class="right-panel">
+  <div class="right-content">
+    <div class="right-label">Why certificates, not passwords</div>
+    <div class="feature-list">
+      <div class="feature-item">
+        <div class="feat-icon" style="background:rgba(26,107,255,0.08)">⚷</div>
+        <div>
+          <div class="feat-title">Your private key never leaves your device</div>
+          <div class="feat-desc">Authentication proves possession of the private key through a cryptographic challenge. The key itself is never transmitted.</div>
+        </div>
+      </div>
+      <div class="feature-item">
+        <div class="feat-icon" style="background:rgba(13,158,110,0.08)">✓</div>
+        <div>
+          <div class="feat-title">Identity is verified by the CA, not the platform</div>
+          <div class="feat-desc">The Attestr CA issued your certificate. Every mTLS connection verifies it. Even if Attestr's servers are compromised, the certificates remain valid proof of identity.</div>
+        </div>
+      </div>
+      <div class="feature-item">
+        <div class="feat-icon" style="background:rgba(217,119,6,0.08)">◈</div>
+        <div>
+          <div class="feat-title">Cannot be phished</div>
+          <div class="feat-desc">A private key cannot be entered into a fake login form. Phishing attacks that steal passwords are structurally impossible against certificate authentication.</div>
+        </div>
+      </div>
+    </div>
+    <div class="cert-explainer">
+      <div class="ce-line"><span class="ce-num">1</span><span class="ce-code">-----BEGIN CERTIFICATE-----</span></div>
+      <div class="ce-line"><span class="ce-num">2</span><span class="ce-code">MIICKDCCAc6gAwIBAgIU... <span class="ce-comment">// X.509 DER base64</span></span></div>
+      <div class="ce-line"><span class="ce-num">3</span><span class="ce-code">Subject: CN=Grammarly <span class="ce-comment">// org identity</span></span></div>
+      <div class="ce-line"><span class="ce-num">4</span><span class="ce-code">Issuer: CN=Attestr Root CA <span class="ce-comment">// signed by our CA</span></span></div>
+      <div class="ce-line"><span class="ce-num">5</span><span class="ce-code">Validity: 365 days <span class="ce-comment">// L1 certificate</span></span></div>
+      <div class="ce-line"><span class="ce-num">6</span><span class="ce-code">-----END CERTIFICATE-----</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const themeBtn = document.getElementById('themeBtn');
+const saved = localStorage.getItem('attestr-theme') || 'light';
+document.documentElement.setAttribute('data-theme', saved);
+themeBtn.textContent = saved === 'dark' ? '☀' : '☾';
+themeBtn.addEventListener('click', () => {
+  const cur = document.documentElement.getAttribute('data-theme');
+  const next = cur === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('attestr-theme', next);
+  themeBtn.textContent = next === 'dark' ? '☀' : '☾';
+});
+
+async function handleLogin() {
+  const certPem = document.getElementById('certPem').value.trim();
+  if (!certPem) { showError('Paste your certificate PEM first.'); return; }
+  await doLogin({ cert_pem: certPem });
+}
+
+async function loginAs(nameOrRole) {
+  const btn = event.currentTarget;
+  btn.style.opacity = '0.6';
+  btn.style.pointerEvents = 'none';
+  try {
+    const res = await fetch(`http://localhost:8000/demo/quick-login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: nameOrRole })
+    });
+    if (!res.ok) {
+      // Fallback: try getting cert from backend directly
+      const certRes = await fetch(`http://localhost:8000/demo/cert/${encodeURIComponent(nameOrRole)}`);
+      if (certRes.ok) {
+        const { cert_pem } = await certRes.json();
+        await doLogin({ cert_pem });
+        return;
+      }
+      throw new Error('Demo login failed. Run make seed first.');
+    }
+    const data = await res.json();
+    finishLogin(data);
+  } catch (e) {
+    showError(e.message || 'Demo login failed. Ensure the backend is running and make seed has been run.');
+  } finally {
+    btn.style.opacity = '';
+    btn.style.pointerEvents = '';
+  }
+}
+
+async function doLogin(body) {
+  const submitBtn = document.getElementById('submitBtn');
+  submitBtn.classList.add('loading');
+  submitBtn.textContent = 'Verifying certificate...';
+  hideError();
+  try {
+    const res = await fetch('http://localhost:8000/admin/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Login failed.');
+    finishLogin(data);
+  } catch (e) {
+    showError(e.message);
+    submitBtn.classList.remove('loading');
+    submitBtn.textContent = 'Verify certificate and sign in';
+  }
+}
+
+function finishLogin(data) {
+  localStorage.setItem('attestr_token', data.access_token);
+  localStorage.setItem('attestr_session', JSON.stringify({
+    token: data.access_token, org_id: data.org_id,
+    org_name: data.org_name, role: data.role
+  }));
+  const routes = { ca_admin: '/admin', auditor: '/auditor', vendor: '/vendor' };
+  window.location.href = routes[data.role] || '/';
+}
+
+function showError(msg) {
+  const box = document.getElementById('errorBox');
+  box.textContent = msg;
+  box.classList.add('show');
+}
+function hideError() {
+  document.getElementById('errorBox').classList.remove('show');
+}
+</script>
+</body>
+</html>
