@@ -27,8 +27,8 @@ def create_remediation_request(
     tessera_id: str,
     auditor_id: str,
     flags: list,
-    auditor_private_key_pem: str,
     db: Session,
+    auditor_private_key_pem: str = None,
 ) -> RemediationRequest:
     """
     Create a signed remediation request.
@@ -37,10 +37,17 @@ def create_remediation_request(
     """
     flags_json = json.dumps(flags)
 
-    # Sign the flags JSON to prove the auditor issued this request
+    # Optionally sign the flags JSON to prove the auditor issued this request.
+    # Signing requires the auditor's private key, which lives on their device and
+    # isn't available in this server-side flow, so it's best-effort.
     import hashlib
-    flags_hash   = hashlib.sha256(flags_json.encode()).hexdigest()
-    signed_hash  = sign_merkle_root(flags_hash, auditor_private_key_pem)
+    flags_hash  = hashlib.sha256(flags_json.encode()).hexdigest()
+    signed_hash = None
+    if auditor_private_key_pem:
+        try:
+            signed_hash = sign_merkle_root(flags_hash, auditor_private_key_pem)
+        except Exception:
+            signed_hash = None
 
     req = RemediationRequest(
         tessera_id    = tessera_id,

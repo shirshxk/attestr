@@ -1,14 +1,17 @@
 import { useState, useEffect } from 'react'
-import { Routes, Route, useNavigate, useLocation } from 'react-router-dom'
+import { Routes, Route, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import api, { API_BASE } from '../lib/api'
 import TesseraInspector from '../components/Tessera/TesseraInspector'
+import MerkleVisualizer from '../components/Verify/MerkleVisualizer'
 import OfflineVerifier from './OfflineVerifier'
 import AppLayout from '../components/Layout/AppLayout'
 import BenchmarkDashboard from '../components/Performance/BenchmarkDashboard'
 import TrustCenter from '../components/Performance/TrustCenter'
 import { useToast } from '../components/Shared/Toast'
 import { useModal } from '../components/Shared/Modal'
-import { IconArrowRight, IconPlus, IconCheck, IconClock, IconX, IconDownload, IconSend } from '../components/Layout/icons'
+import { useAuth } from '../hooks/useAuth'
+import MyTeamPage from './MyTeamPage'
+import { IconArrowRight, IconPlus, IconCheck, IconClock, IconX, IconDownload, IconSend, IconShield } from '../components/Layout/icons'
 
 const STAGES = ['pending','submitted','under_review','in_remediation','closed']
 const STAGE_LABEL = { pending:'Pending', submitted:'Submitted', under_review:'Under Review', in_remediation:'Remediation', closed:'Closed' }
@@ -26,8 +29,8 @@ const TYPE_TAG = {
 }
 const TYPE_LABEL = { soc2:'SOC 2', iso27001:'ISO 27001', custom:'Custom' }
 
-function Card({ children, className = '' }) {
-  return <div className={`bg-white dark:bg-neutral-900 rounded-xl border border-gray-200 dark:border-neutral-800 ${className}`}>{children}</div>
+function Card({ children, className = '', ...rest }) {
+  return <div className={`bg-white dark:bg-neutral-900 rounded-xl border border-gray-200 dark:border-neutral-800 ${className}`} {...rest}>{children}</div>
 }
 
 // ── Pipeline (Kanban) ────────────────────────────────────────────────────────
@@ -170,10 +173,20 @@ function NewQuestionnaire() {
             <div className="text-[11px] text-gray-500 dark:text-neutral-400 leading-relaxed">
               Columns: <code className="mono text-[10.5px] bg-gray-200 dark:bg-neutral-700 px-1 rounded">question_id</code>, <code className="mono text-[10.5px] bg-gray-200 dark:bg-neutral-700 px-1 rounded">question_text</code>, <code className="mono text-[10.5px] bg-gray-200 dark:bg-neutral-700 px-1 rounded">question_type</code>, <code className="mono text-[10.5px] bg-gray-200 dark:bg-neutral-700 px-1 rounded">is_required</code>.
               <div className="mt-2 flex gap-2">
-                <a href={`${API_BASE}/questionnaires/template/csv`} target="_blank" rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 font-medium"><IconDownload width={12} height={12}/> CSV template</a>
-                <a href={`${API_BASE}/questionnaires/template/xlsx`} target="_blank" rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 font-medium"><IconDownload width={12} height={12}/> XLSX template</a>
+                {['csv','xlsx'].map(fmt => (
+                  <button key={fmt} onClick={async () => {
+                    try {
+                      const r = await api.get(`/questionnaires/custom/template?fmt=${fmt}`, { responseType:'blob' })
+                      const url = URL.createObjectURL(new Blob([r.data]))
+                      const a = document.createElement('a'); a.href = url
+                      a.download = `attestr_questions_template.${fmt}`
+                      document.body.appendChild(a); a.click(); a.remove()
+                      URL.revokeObjectURL(url)
+                    } catch { toast.error('Template download failed.') }
+                  }} className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 font-medium text-[12px]">
+                    <IconDownload width={12} height={12}/> {fmt.toUpperCase()} template
+                  </button>
+                ))}
               </div>
             </div>
           </div>
@@ -181,11 +194,16 @@ function NewQuestionnaire() {
 
         <div>
           <label className="block text-[11.5px] font-medium text-gray-600 dark:text-neutral-400 mb-1.5">Send to vendor</label>
-          <select value={form.vendor_id} onChange={e => setForm({...form, vendor_id:e.target.value})}
-            className="w-full text-[13px] bg-gray-50 dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white">
-            <option value="">Select vendor...</option>
-            {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-          </select>
+          <div className="relative">
+            <select value={form.vendor_id} onChange={e => setForm({...form, vendor_id:e.target.value})}
+              className="w-full appearance-none text-[13px] bg-gray-50 dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-lg pl-3 pr-9 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white cursor-pointer">
+              <option value="">Select vendor...</option>
+              {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+            </select>
+            <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </div>
           {!vendors.length && (
             <p className="text-[11px] text-amber-600 mt-1.5">No vendors yet. <button type="button" onClick={() => navigate('/auditor/vendors')} className="underline font-medium">Request one →</button></p>
           )}
@@ -316,12 +334,79 @@ function Vendors() {
 }
 
 // ── Bundle Viewer ────────────────────────────────────────────────────────────
+function BundleList() {
+  const navigate = useNavigate()
+  const [qs, setQs] = useState(null)
+
+  useEffect(() => {
+    api.get('/questionnaires').then(r => {
+      // Only questionnaires that actually have a submission/Tessera
+      setQs((r.data || []).filter(q => q.status && q.status !== 'pending'))
+    }).catch(() => setQs([]))
+  }, [])
+
+  if (qs === null) return <Card className="p-12 text-center"><p className="text-[13px] text-gray-400">Loading…</p></Card>
+  if (!qs.length) return (
+    <Card className="p-12 text-center">
+      <p className="text-[13px] text-gray-400 mb-1">No submitted Tesseras yet.</p>
+      <p className="text-[12px] text-gray-400">Bundles appear here once a vendor signs and submits a questionnaire.</p>
+    </Card>
+  )
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-3">
+      <div className="flex items-center justify-between px-1 mb-1">
+        <span className="text-[12px] font-medium text-gray-400 uppercase tracking-wide">
+          {qs.length} bundle{qs.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+      {qs.map(q => {
+        const dotColor = {
+          submitted: 'bg-blue-500', under_review: 'bg-amber-500',
+          in_remediation: 'bg-orange-500', closed: 'bg-emerald-500',
+        }[q.status] || 'bg-gray-400'
+        const vinitials = (q.vendor_name || '??').slice(0,2).toUpperCase()
+        return (
+          <Card key={q.id} className="group px-5 py-4 flex items-center gap-4 hover:border-blue-300 dark:hover:border-blue-500/40 hover:shadow-sm transition-all cursor-pointer"
+            onClick={() => navigate(`/auditor/bundle?q=${q.id}`)}>
+            {/* Vendor avatar */}
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white text-[14px] font-bold flex-shrink-0 shadow-sm">
+              {vinitials}
+            </div>
+            {/* Title + meta */}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[14px] font-semibold text-gray-900 dark:text-white truncate">{q.title}</span>
+                <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-0.5 rounded-full ${STAGE_TAG[q.status]||'bg-gray-100 text-gray-600'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`}/>
+                  {(STAGE_LABEL[q.status]||q.status).replace(/_/g,' ')}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 text-[12px] text-gray-400">
+                {q.vendor_name && <span className="font-medium text-gray-500 dark:text-neutral-400">{q.vendor_name}</span>}
+                {q.deadline && <><span>·</span><span>due {new Date(q.deadline).toLocaleDateString()}</span></>}
+              </div>
+            </div>
+            {/* Inspect affordance */}
+            <span className="flex items-center gap-1.5 text-[12.5px] font-semibold text-blue-600 flex-shrink-0 opacity-60 group-hover:opacity-100 transition-opacity">
+              Inspect <IconArrowRight width={15} height={15}/>
+            </span>
+          </Card>
+        )
+      })}
+    </div>
+  )
+}
+
 function BundleViewer() {
   const loc = useLocation()
   const navigate = useNavigate()
   const toast = useToast()
   const modal = useModal()
-  const qId = new URLSearchParams(loc.search).get('q')
+  const { org } = useAuth()
+  const canClose_priv = org?.is_privileged || ['super_admin','ca_admin','admin'].includes(org?.role)
+  const [searchParams] = useSearchParams()
+  const qId = searchParams.get('q')
 
   const [meta, setMeta] = useState(null)        // questionnaire detail
   const [tessera, setTessera] = useState(null)
@@ -333,24 +418,35 @@ function BundleViewer() {
   const [flags, setFlags] = useState({})        // { question_id: { reasons:[], comment:'' } }
   const [busy, setBusy] = useState('')
   const [reasons, setReasons] = useState([])
+  const [anatomyOpen, setAnatomyOpen] = useState(false)  // collapsible Tessera anatomy
 
   const loadTessera = async (tid) => {
-    const t = await api.get(`/tesseras/${tid}`).then(r => r.data).catch(() => null)
-    const a = await api.get(`/tesseras/${tid}/answers`).then(r => r.data).catch(() => [])
-    setTessera(t); setAnswers(a); setVerify(null)
+    try {
+      const t = await api.get(`/tesseras/${tid}`).then(r => r.data)
+      setTessera(t); setAnswers(t?.answers || []); setVerify(null)
+    } catch (e) {
+      setTessera(null); setEmpty(true)
+      toast.error('Could not load this Tessera.')
+    }
   }
 
   const load = async () => {
     if (!qId) { setEmpty(true); return }
-    const q = await api.get(`/questionnaires/${qId}`).then(r => r.data).catch(() => null)
-    setMeta(q)
-    const ts = await api.get(`/questionnaires/${qId}/tesseras`).then(r => r.data).catch(() => [])
-    if (ts.length) {
-      // sort by round ascending so history reads oldest → newest
-      const sorted = [...ts].sort((a,b) => (a.remediation_round||0) - (b.remediation_round||0))
-      setRounds(sorted)
-      await loadTessera(sorted[sorted.length-1].tessera_id)  // default to latest
-    } else { setEmpty(true) }
+    setEmpty(false); setTessera(null)
+    try {
+      const q = await api.get(`/questionnaires/${qId}`).then(r => r.data).catch(() => null)
+      setMeta(q)
+      const ts = await api.get(`/questionnaires/${qId}/tesseras`).then(r => r.data).catch(() => [])
+      if (ts.length) {
+        const sorted = [...ts].sort((a,b) => (a.remediation_round||0) - (b.remediation_round||0))
+        setRounds(sorted)
+        await loadTessera(sorted[sorted.length-1].tessera_id)
+      } else { setEmpty(true) }
+    } catch (e) {
+      console.error('BundleViewer load error:', e)
+      toast.error('Could not load this bundle.')
+      setEmpty(true)
+    }
   }
 
   useEffect(() => { load(); api.get('/remediation/reasons').then(r => setReasons(r.data.reasons)).catch(()=>{}) }, [qId])
@@ -396,6 +492,17 @@ function BundleViewer() {
   })
   const setFlagComment = (qid, comment) => setFlags(f => ({ ...f, [qid]: { ...(f[qid]||{reasons:[]}), comment } }))
 
+  const downloadAnswerFile = async (path) => {
+    try {
+      const r = await api.get(path, { responseType: 'blob' })
+      const url = URL.createObjectURL(new Blob([r.data]))
+      const a = document.createElement('a')
+      a.href = url; a.download = path.split('/').pop()
+      document.body.appendChild(a); a.click(); a.remove()
+      URL.revokeObjectURL(url)
+    } catch { toast.error('Could not download file.') }
+  }
+
   const submitFlags = async () => {
     const flagList = Object.entries(flags).map(([question_id, v]) => ({ question_id, reasons: v.reasons, comment: v.comment }))
     if (!flagList.length) { toast.error('Flag at least one answer first.'); return }
@@ -405,18 +512,6 @@ function BundleViewer() {
       toast.success(`${flagList.length} answer(s) flagged. Vendor notified for remediation.`, { title: 'Remediation requested' })
       setFlagMode(false); setFlags({}); load()
     } catch (e) { toast.error(e.response?.data?.detail || 'Could not send remediation request.') }
-    finally { setBusy('') }
-  }
-
-  const requestContext = async (qid) => {
-    const comment = await promptComment(modal, qid)
-    if (comment == null) return
-    setBusy('ctx')
-    try {
-      await api.post('/remediation/request-context', { tessera_id: tessera.id, question_id: qid, comment })
-      toast.success('Context request sent to the vendor.', { title: 'Additional context' })
-      load()
-    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to send request.') }
     finally { setBusy('') }
   }
 
@@ -436,27 +531,40 @@ function BundleViewer() {
     finally { setBusy('') }
   }
 
-  if (empty || !qId) return (
-    <Card className="p-12 text-center"><p className="text-[13px] text-gray-400">Select a questionnaire from the Pipeline to view its Tessera.</p></Card>
+  if (!qId) return <BundleList />
+  if (empty) return (
+    <Card className="p-12 text-center">
+      <p className="text-[13px] text-gray-400 mb-3">No Tessera submitted yet for this questionnaire.</p>
+      <button onClick={() => navigate('/auditor/bundle')} className="text-[12.5px] text-blue-600 hover:underline">← All bundles</button>
+    </Card>
   )
   if (!tessera) return <Card className="p-12 text-center"><p className="text-[13px] text-gray-400">Loading…</p></Card>
 
   const status = meta?.status || tessera.verification_status
-  const canClose = status && status !== 'closed'
+  // ALL auditors can flag answers for remediation (their core job).
+  // Only privileged auditors / super-admins can close the cycle (final sign-off).
+  const canFlag  = status && ['submitted', 'under_review'].includes(status)
+  const canClose = status && status !== 'closed' && canClose_priv
 
   return (
-    <div className="space-y-4">
+    <div className="max-w-6xl mx-auto space-y-4">
+      <button onClick={() => navigate('/auditor/bundle')} className="text-[12.5px] text-gray-500 hover:text-gray-700 dark:hover:text-neutral-300">← All bundles</button>
       {/* Header */}
+      <Card className="px-5 py-4">
       <div className="flex items-start justify-between">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <h2 className="text-[15px] font-semibold text-gray-900 dark:text-white">{meta?.title}</h2>
-            <span className={`text-[11px] font-medium px-2 py-0.5 rounded-md ${STAGE_TAG[status]||'bg-gray-100 text-gray-600'}`}>{(STAGE_LABEL[status]||status||'').replace(/_/g,' ')}</span>
+        <div className="flex items-start gap-3">
+          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white text-[14px] font-bold flex-shrink-0 shadow-sm">
+            {(meta?.vendor_name || tessera.vendor_name || '??').slice(0,2).toUpperCase()}
           </div>
-          <div className="flex items-center gap-2 text-[11.5px] text-gray-400">
-            <span>Vendor: <span className="text-gray-600 dark:text-neutral-300 font-medium">{meta?.vendor_name || '—'}</span></span>
-            <span>·</span>
-            <span className="mono">{tessera.bundle?.bundle_id?.slice(0,18)}…</span>
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <h2 className="text-[15px] font-semibold text-gray-900 dark:text-white">{meta?.title}</h2>
+              <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${STAGE_TAG[status]||'bg-gray-100 text-gray-600'}`}>{(STAGE_LABEL[status]||status||'').replace(/_/g,' ')}</span>
+            </div>
+            <div className="flex items-center gap-2 text-[11.5px] text-gray-400">
+              <span>Vendor: <span className="text-gray-600 dark:text-neutral-300 font-medium">{meta?.vendor_name || tessera.vendor_name || '—'}</span></span>
+              {tessera.bundle?.bundle_id && <><span>·</span><span className="mono">{tessera.bundle.bundle_id.slice(0,18)}…</span></>}
+            </div>
           </div>
         </div>
         <div className="flex gap-2">
@@ -476,6 +584,7 @@ function BundleViewer() {
           )}
         </div>
       </div>
+      </Card>
 
       {/* Version history — remediation rounds */}
       {rounds.length > 1 && (
@@ -498,38 +607,41 @@ function BundleViewer() {
         </Card>
       )}
 
-      {/* Verification — progressive, real results */}
+      {/* Cryptographic verification — six checks in a 3×2 grid */}
       <Card>
-        <div className="px-4 py-3 border-b border-gray-100 dark:border-neutral-800 flex items-center justify-between">
+        <div className="px-5 py-3.5 border-b border-gray-100 dark:border-neutral-800 flex items-center justify-between">
           <div>
             <span className="text-[13px] font-semibold text-gray-900 dark:text-white">Cryptographic verification</span>
-            <div className="text-[11px] text-gray-400 mt-0.5">Five independent checks, each provable against the bundle itself</div>
+            <div className="text-[11px] text-gray-400 mt-0.5">Six independent checks, each provable against the bundle itself</div>
           </div>
           {verify && <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg border ${verify.overall_valid ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400' : 'bg-red-50 text-red-700 border-red-200 dark:bg-red-500/10 dark:text-red-400'}`}>{verify.overall_valid ? 'All checks passed' : 'Verification failed'}</span>}
         </div>
-        <div className="p-4">
+        <div className="p-5">
           {!verify ? (
-            <p className="text-[12.5px] text-gray-400">Click "Verify Tessera" above to run all five cryptographic checks against this bundle.</p>
+            <div className="py-8 text-center">
+              <p className="text-[12.5px] text-gray-400">Click "Verify Tessera" above to run all six cryptographic checks against this bundle.</p>
+            </div>
           ) : (
-            <div className="space-y-1">
+            <div className="grid sm:grid-cols-2 gap-3">
               {[
                 ['Certificate chain', verify.cert_valid, 'Vendor certificate is signed by the Attestr CA and not expired.'],
                 ['Revocation (CRL)', verify.crl_valid, 'The certificate serial is not on the revocation list.'],
                 ['ECDSA signature', verify.ecdsa_valid, 'The signature over the Merkle root verifies against the vendor public key.'],
                 ['Merkle proofs', verify.merkle_valid, 'Every answer hash recomputes and the tree resolves to the signed root.'],
                 ['RFC 3161 timestamp', verify.timestamp_valid, 'The trusted timestamp token over the root is valid.'],
+                ['Bundle integrity', verify.integrity_valid, 'All required cryptographic artifacts are present in the sealed bundle.'],
               ].map(([l, ok, desc], i) => (
-                <div key={l} className="flex items-start gap-3 py-2 border-b border-gray-50 dark:border-neutral-800/50 last:border-0"
-                  style={{ animation: `revealStep 0.3s ease ${i*0.12}s both` }}>
+                <div key={l} className={`flex items-start gap-3 p-3 rounded-xl border ${ok ? 'border-emerald-100 bg-emerald-50/40 dark:border-emerald-500/20 dark:bg-emerald-500/5' : 'border-red-100 bg-red-50/40 dark:border-red-500/20 dark:bg-red-500/5'}`}
+                  style={{ animation: `revealStep 0.3s ease ${i*0.09}s both` }}>
                   <span className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${ok ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400' : 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400'}`}>
                     {ok ? <IconCheck width={12} height={12}/> : <IconX width={12} height={12}/>}
                   </span>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[12.5px] font-medium text-gray-900 dark:text-white">{l}</span>
-                      <span className={`text-[10.5px] font-semibold ${ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{ok ? 'PASS' : 'FAIL'}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[12.5px] font-semibold text-gray-900 dark:text-white">{l}</span>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${ok ? 'text-emerald-700 bg-emerald-100 dark:text-emerald-400 dark:bg-emerald-500/15' : 'text-red-700 bg-red-100 dark:text-red-400 dark:bg-red-500/15'}`}>{ok ? 'PASS' : 'FAIL'}</span>
                     </div>
-                    <div className="text-[11.5px] text-gray-400 dark:text-neutral-500 mt-0.5">{desc}</div>
+                    <div className="text-[11px] text-gray-400 dark:text-neutral-500 mt-1 leading-snug">{desc}</div>
                   </div>
                 </div>
               ))}
@@ -539,20 +651,58 @@ function BundleViewer() {
         </div>
       </Card>
 
-      {/* Tessera anatomy — real cryptographic artifacts */}
-      <div>
-        <div className="flex items-center gap-2 mb-3 mt-1">
-          <h3 className="text-[13.5px] font-semibold text-gray-900 dark:text-white">Tessera anatomy</h3>
-          <span className="text-[11px] text-gray-400">— the actual values inside this sealed bundle</span>
+      {/* Interactive Merkle tree — privileged viewers only, full-width row below */}
+      {verify && tessera.can_see_internals && verify.merkle_details?.tree && (
+        <Card>
+          <div className="px-5 py-3.5 border-b border-gray-100 dark:border-neutral-800">
+            <span className="text-[13px] font-semibold text-gray-900 dark:text-white">Merkle tree</span>
+            <div className="text-[11px] text-gray-400 mt-0.5">Each answer hashes to a leaf; tampering turns its path to the root red</div>
+          </div>
+          <div className="p-5 overflow-x-auto">
+            <MerkleVisualizer
+              tree={verify.merkle_details.tree}
+              failedIndices={verify.merkle_details.failed_indices || []}
+              answers={verify.merkle_details.answers || []}
+              isValid={verify.merkle_valid}
+            />
+          </div>
+        </Card>
+      )}
+
+      {/* Tessera anatomy — privileged viewers only, collapsible (can be large) */}
+      {tessera.can_see_internals ? (
+        <div>
+          <button onClick={() => setAnatomyOpen(o => !o)}
+            className="w-full flex items-center gap-2 mb-3 mt-1 group">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+              className={`text-gray-400 transition-transform ${anatomyOpen ? 'rotate-90' : ''}`}>
+              <polyline points="9 6 15 12 9 18"/>
+            </svg>
+            <h3 className="text-[13.5px] font-semibold text-gray-900 dark:text-white">Tessera anatomy</h3>
+            <span className="text-[11px] text-gray-400">— the actual values inside this sealed bundle</span>
+            <span className="ml-auto text-[11px] font-medium text-blue-600 dark:text-blue-400 group-hover:underline">
+              {anatomyOpen ? 'Hide' : 'Show'}
+            </span>
+          </button>
+          {anatomyOpen && <TesseraInspector tessera={tessera}/>}
         </div>
-        <TesseraInspector tessera={tessera}/>
-      </div>
+      ) : (
+        <div className="bg-gray-50 dark:bg-neutral-900/50 border border-gray-200 dark:border-neutral-800 rounded-xl p-5 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-neutral-800 flex items-center justify-center text-gray-400 flex-shrink-0">
+            <IconShield width={18} height={18}/>
+          </div>
+          <div>
+            <div className="text-[13px] font-semibold text-gray-900 dark:text-white">Tessera anatomy is restricted</div>
+            <div className="text-[12px] text-gray-500 dark:text-neutral-400">The raw cryptographic artifacts are available to privileged auditors and admins. You can still run verification above.</div>
+          </div>
+        </div>
+      )}
 
       {/* Submitted answers */}
       <Card>
         <div className="px-4 py-3 border-b border-gray-100 dark:border-neutral-800 flex items-center justify-between">
           <span className="text-[13px] font-semibold text-gray-900 dark:text-white">Submitted answers <span className="text-gray-400 font-normal">({answers.length})</span></span>
-          {canClose && (
+          {canFlag && (
             flagMode ? (
               <div className="flex gap-2">
                 <button onClick={() => { setFlagMode(false); setFlags({}) }} className="text-[12px] font-medium text-gray-500 hover:text-gray-700">Cancel</button>
@@ -581,28 +731,32 @@ function BundleViewer() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="mono text-[10.5px] text-gray-400">{a.question_id}</span>
-                      {!flagMode && canClose && (
-                        <button onClick={() => requestContext(a.question_id)}
-                          className="text-[10.5px] text-blue-600 hover:text-blue-700 font-medium">request context</button>
-                      )}
                     </div>
                     <div className="text-[13px] text-gray-700 dark:text-neutral-300 mb-1">{a.question_text}</div>
                     <div className="flex items-center gap-2">
-                      <span className="text-[12.5px] font-semibold text-gray-900 dark:text-white">{a.answer_value || <span className="text-gray-300 italic font-normal">no answer</span>}</span>
+                      {a.answer_type === 'file_attachment'
+                        ? a.answer_value
+                          ? <button onClick={() => downloadAnswerFile(a.answer_value)}
+                              className="text-[12.5px] font-semibold text-blue-600 hover:text-blue-700 underline flex items-center gap-1">
+                              <IconDownload width={13} height={13}/> {(a.display_name || a.answer_value).split('/').pop()}
+                            </button>
+                          : <span className="text-gray-300 italic text-[12.5px] font-normal">no file uploaded</span>
+                        : <span className="text-[12.5px] font-semibold text-gray-900 dark:text-white">{a.answer_value || <span className="text-gray-300 italic font-normal">no answer</span>}</span>
+                      }
                       {a.evidence_note && <span className="text-[11.5px] text-gray-400">· {a.evidence_note}</span>}
                     </div>
 
-                    {flagged && (
+                    {flagged && flags[a.question_id] && (
                       <div className="mt-3 pl-1 space-y-2">
                         <div className="flex flex-wrap gap-1.5">
                           {reasons.map(r => (
                             <button key={r} onClick={() => setFlagReason(a.question_id, r)}
-                              className={`text-[10.5px] px-2 py-1 rounded-md border transition-colors ${flags[a.question_id].reasons.includes(r) ? 'bg-amber-500 text-white border-amber-500' : 'bg-white dark:bg-neutral-800 border-gray-200 dark:border-neutral-700 text-gray-600 dark:text-neutral-300'}`}>
+                              className={`text-[10.5px] px-2 py-1 rounded-md border transition-colors ${(flags[a.question_id]?.reasons||[]).includes(r) ? 'bg-amber-500 text-white border-amber-500' : 'bg-white dark:bg-neutral-800 border-gray-200 dark:border-neutral-700 text-gray-600 dark:text-neutral-300'}`}>
                               {r}
                             </button>
                           ))}
                         </div>
-                        <input value={flags[a.question_id].comment} onChange={e => setFlagComment(a.question_id, e.target.value)}
+                        <input value={flags[a.question_id]?.comment || ''} onChange={e => setFlagComment(a.question_id, e.target.value)}
                           placeholder="Comment for the vendor (optional)"
                           className="w-full text-[12px] bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-amber-400 text-gray-700 dark:text-neutral-300"/>
                       </div>
@@ -619,16 +773,6 @@ function BundleViewer() {
   )
 }
 
-// Small modal-based comment prompt for "request context"
-async function promptComment(modal, qid) {
-  // Reuse confirm-style modal via a transient DOM prompt replacement:
-  // We use window.prompt fallback only if modal lacks input; here we do a simple approach.
-  return new Promise(resolve => {
-    const val = window.prompt(`What additional context do you need for ${qid}?`)
-    resolve(val && val.trim() ? val.trim() : null)
-  })
-}
-
 export default function AuditorDashboard() {
   const loc = useLocation()
   const titles = {
@@ -638,6 +782,7 @@ export default function AuditorDashboard() {
     '/auditor/bundle': ['Bundle viewer', 'Verify submitted Tesseras'],
     '/auditor/verify': ['Offline verify', 'Re-verify any .tessera file with zero server trust'],
     '/auditor/trust': ['Trust Center', 'Architecture & cryptographic performance'],
+    '/auditor/team': ['My team', 'Your workspace and teammates'],
   }
   const [title, subtitle] = titles[loc.pathname] || titles['/auditor']
   const actions = loc.pathname === '/auditor' ? (
@@ -653,6 +798,7 @@ export default function AuditorDashboard() {
         <Route path="bundle" element={<BundleViewer />} />
         <Route path="verify" element={<OfflineVerifier embedded />} />
         <Route path="trust" element={<TrustCenter />} />
+        <Route path="team" element={<MyTeamPage />} />
       </Routes>
     </AppLayout>
   )

@@ -1,5 +1,16 @@
 # Deploying Attestr to Azure
 
+> ⚠️ **REQUIRED BEFORE ANY PRODUCTION DEPLOY.** Set these environment variables to
+> strong, unique values (≥16 chars). The app **refuses to start** in production
+> (`ATTESTR_ENV=production`) if they're left at their development defaults:
+>
+> - `JWT_SECRET` — signs session tokens. If left default, anyone can forge logins.
+> - `CA_PASSPHRASE` — encrypts the CA keystore. If left default, the root key is exposed.
+> - `ALLOWED_ORIGINS` — comma-separated frontend origins for CORS (e.g. `https://attestr.example.com`).
+> - `ATTESTR_ENV=production` — also disables the `/demo/*` quick-login endpoints.
+>
+> Generate strong values with: `python -c "import secrets; print(secrets.token_urlsafe(32))"`
+
 This guide deploys Attestr using the **GitHub Student Pack** Azure credit ($100, no card).
 You'll stand up three things:
 

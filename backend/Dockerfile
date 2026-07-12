@@ -17,7 +17,3 @@ RUN mkdir -p /app/data
 COPY . .
 
 EXPOSE 8000
-
-# Azure App Service (and most PaaS) inject the listening port via $PORT.
-# Fall back to 8000 for local runs. --reload is intentionally omitted in prod.
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]

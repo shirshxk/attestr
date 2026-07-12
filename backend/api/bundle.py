@@ -28,11 +28,43 @@ def get_tessera(
     org: Organization = Depends(require_auth),
     db: Session = Depends(get_db),
 ):
-    """Get Tessera metadata and bundle."""
+    """Get Tessera metadata and bundle. Raw cryptographic anatomy (the full
+    bundle) is only returned to privileged viewers; normal auditors get metadata
+    and verification, but not the internal artifacts."""
+    from api.auth import can_see_internals
+    from models.database import Answer, Submission
     t = db.query(Tessera).filter(Tessera.id == tessera_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="Tessera not found.")
     bundle = json.loads(t.bundle_json)
+    privileged = can_see_internals(org)
+
+    # Submitted answers are the compliance content — every auditor sees these.
+    # Only the raw cryptographic bundle is restricted to privileged viewers.
+    answers_raw = (
+        db.query(Answer)
+        .filter(Answer.submission_id == t.submission_id)
+        .all()
+    )
+    answers = [
+        {
+            "question_id":   a.question_id,
+            "question_text": a.question_text,
+            "answer_value":  a.answer_value,
+            "answer_type":   a.answer_type,
+            "evidence_note": a.evidence_note or "",
+            "answered_at":   a.answered_at_iso or (a.answered_at.isoformat() if a.answered_at else None),
+        }
+        for a in answers_raw
+    ]
+
+    # Who was this submitted by (vendor) + which questionnaire
+    sub = db.query(Submission).filter(Submission.id == t.submission_id).first()
+    vendor_name = None
+    if sub:
+        v = db.query(Organization).filter(Organization.id == sub.vendor_id).first()
+        vendor_name = v.name if v else None
+
     return {
         "id":                  t.id,
         "bundle_id":           bundle.get("bundle_id"),
@@ -41,7 +73,10 @@ def get_tessera(
         "parent_tessera_id":   t.parent_tessera_id,
         "verification_status": t.verification_status,
         "created_at":          t.created_at.isoformat(),
-        "bundle":              bundle,
+        "can_see_internals":   privileged,
+        "vendor_name":         vendor_name,
+        "answers":             answers,
+        "bundle":              bundle if privileged else None,
     }
 
 
@@ -63,34 +98,6 @@ def download_tessera(
     )
 
 
-@router.get("/tesseras/{tessera_id}/answers")
-def get_tessera_answers(
-    tessera_id: str,
-    org: Organization = Depends(require_auth),
-    db: Session = Depends(get_db),
-):
-    """Return submitted answers for a Tessera so the auditor can review them."""
-    t = db.query(Tessera).filter(Tessera.id == tessera_id).first()
-    if not t:
-        raise HTTPException(status_code=404, detail="Tessera not found.")
-    rows = (
-        db.query(Answer)
-        .filter(Answer.submission_id == t.submission_id)
-        .order_by(Answer.id)
-        .all()
-    )
-    return [
-        {
-            "question_id":   a.question_id,
-            "question_text": a.question_text,
-            "answer_value":  a.answer_value,
-            "answer_type":   a.answer_type,
-            "evidence_note": a.evidence_note or "",
-        }
-        for a in rows
-    ]
-
-
 @router.post("/tesseras/{tessera_id}/verify")
 def verify_tessera_bundle(
     tessera_id: str,
@@ -107,10 +114,10 @@ def verify_tessera_bundle(
 
     bundle = json.loads(t.bundle_json)
 
-    # Prefer the exact normalized answers snapshot stored at signing time.
-    # This guarantees byte-for-byte identical leaf hashing during verification.
-    # Falling back to DB-derived answers can mismatch (e.g. timezone/precision
-    # differences in answered_at), which would wrongly flag a valid Merkle tree.
+    # Prefer the answer snapshot embedded in the bundle at build time — these are
+    # the EXACT canonical answers that were hashed into the signed Merkle tree, so
+    # they always reproduce the root. Fall back to reconstructing from the DB only
+    # for older bundles that predate the embedded snapshot.
     snapshot = bundle.get("merkle_answers_snapshot")
     if snapshot:
         answers = snapshot
@@ -121,15 +128,16 @@ def verify_tessera_bundle(
             .order_by(Answer.id)
             .all()
         )
+        from questionnaire.processor import normalize_answer
         answers = [
-            {
-                "question_id":   a.question_id,
-                "question_text": a.question_text,
-                "answer_value":  a.answer_value,
-                "answer_type":   a.answer_type,
-                "evidence_note": a.evidence_note or "",
-                "answered_at":   a.answered_at.isoformat(),
-            }
+            normalize_answer(
+                question_id   = a.question_id,
+                question_text = a.question_text,
+                answer_value  = a.answer_value,
+                answer_type   = a.answer_type,
+                evidence_note = a.evidence_note or "",
+                answered_at   = a.answered_at_iso or (a.answered_at.isoformat() if a.answered_at else None),
+            )
             for a in answers_raw
         ]
 

@@ -55,8 +55,8 @@ def quick_login(body: QuickLoginRequest):
     ca.initialize()
     db = SessionLocal()
     try:
-        if body.name == "ca_admin":
-            org = db.query(Organization).filter(Organization.role == "ca_admin").first()
+        if body.name in ("ca_admin", "super_admin"):
+            org = db.query(Organization).filter(Organization.role.in_(["super_admin","ca_admin"])).first()
         else:
             org = db.query(Organization).filter(Organization.name == body.name).first()
 
@@ -84,7 +84,10 @@ def quick_login(body: QuickLoginRequest):
             "token_type":   "bearer",
             "org_id":       org.id,
             "org_name":     org.name,
-            "role":         org.role,
+            "role":         "super_admin" if org.role == "ca_admin" else org.role,
+            "is_privileged": bool(getattr(org, "is_privileged", False)),
+        "workspace_id": getattr(org, "workspace_id", None),
+        "is_workspace_admin": bool(getattr(org, "is_workspace_admin", False)),
         }
     finally:
         db.close()
@@ -99,8 +102,8 @@ def get_cert_by_name(name: str):
     ca.initialize()
     db = SessionLocal()
     try:
-        if name == "ca_admin":
-            org = db.query(Organization).filter(Organization.role == "ca_admin").first()
+        if name in ("ca_admin", "super_admin"):
+            org = db.query(Organization).filter(Organization.role.in_(["super_admin","ca_admin"])).first()
         else:
             org = db.query(Organization).filter(Organization.name == name).first()
 

@@ -70,8 +70,11 @@ for org_data in ORGS:
         db.flush()
 
         # Save private key to keystore for demo use
-        from keystore.store import store_org_private_key
-        store_org_private_key(org.id, priv_pem)
+        role_prefix = "vendor" if org.role == "vendor" else "auditor"
+        ks_path = settings.ca_keystore_path.replace("ca_keystore", f"{role_prefix}_{org.id}_key")
+        ks = KeystoreManager(ks_path, settings.ca_passphrase)
+        ks.store_key("private_key", priv_pem)
+        ks.save()
         print(f"  ✓ Certificate issued, private key saved")
     else:
         print(f"  ✓ Certificate already exists")

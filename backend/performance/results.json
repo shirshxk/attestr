@@ -1,27 +1,27 @@
 {
-  "generated_at": "2026-06-07T04:18:57Z",
+  "generated_at": "2026-07-12T07:01:06Z",
   "ecc_vs_rsa": {
     "ecc": {
-      "keygen_ms": 0.031,
-      "sign_ms": 0.037,
-      "verify_ms": 0.087,
+      "keygen_ms": 0.027,
+      "sign_ms": 0.038,
+      "verify_ms": 0.089,
       "key_size_bytes": 241
     },
     "rsa": {
-      "keygen_ms": 49.774,
-      "sign_ms": 0.716,
-      "verify_ms": 0.027,
-      "key_size_bytes": 1700
+      "keygen_ms": 52.256,
+      "sign_ms": 0.612,
+      "verify_ms": 0.024,
+      "key_size_bytes": 1704
     }
   },
   "argon2_vs_pbkdf2": {
     "argon2id": {
-      "avg_ms": 40.2,
+      "avg_ms": 40.6,
       "memory_kb": 65536,
       "params": "t=3, m=64MB, p=4"
     },
     "pbkdf2": {
-      "avg_ms": 100.2,
+      "avg_ms": 101.1,
       "memory_kb": 1,
       "params": "iterations=600000"
     }
@@ -29,48 +29,48 @@
   "merkle_scaling": [
     {
       "answer_count": 5,
-      "build_ms": 0.077,
-      "proof_ms": 0.005,
+      "build_ms": 0.081,
+      "proof_ms": 0.006,
       "tree_depth": 4
     },
     {
       "answer_count": 10,
-      "build_ms": 0.061,
+      "build_ms": 0.065,
       "proof_ms": 0.005,
       "tree_depth": 5
     },
     {
       "answer_count": 20,
-      "build_ms": 0.106,
-      "proof_ms": 0.005,
+      "build_ms": 0.107,
+      "proof_ms": 0.006,
       "tree_depth": 6
     },
     {
       "answer_count": 40,
-      "build_ms": 0.209,
-      "proof_ms": 0.006,
+      "build_ms": 0.331,
+      "proof_ms": 0.008,
       "tree_depth": 7
     },
     {
       "answer_count": 50,
-      "build_ms": 0.256,
-      "proof_ms": 0.006,
+      "build_ms": 0.272,
+      "proof_ms": 0.007,
       "tree_depth": 7
     },
     {
       "answer_count": 100,
-      "build_ms": 1.899,
-      "proof_ms": 0.011,
+      "build_ms": 0.553,
+      "proof_ms": 0.008,
       "tree_depth": 8
     }
   ],
   "hybrid_vs_naive": {
-    "hybrid_avg_ms": 0.187,
+    "hybrid_avg_ms": 0.207,
     "payload_size_bytes": 943,
     "note": "Naive full asymmetric encryption cannot handle arbitrary payload sizes. ECC max ~32 bytes."
   },
   "pfs_overhead": {
-    "pfs_avg_ms": 0.144,
+    "pfs_avg_ms": 0.149,
     "note": "Overhead per session for perfect forward secrecy via ephemeral ECDH + HKDF"
   }
 }

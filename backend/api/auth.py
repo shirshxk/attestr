@@ -24,7 +24,8 @@ from typing import Optional
 
 from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWTError
 from sqlalchemy.orm import Session
 
 from ca.authority import ca
@@ -54,7 +55,7 @@ def _decode_token(token: str) -> dict:
             settings.jwt_secret,
             algorithms=[settings.jwt_algorithm],
         )
-    except JWTError:
+    except PyJWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired session token.",
@@ -88,7 +89,10 @@ def login_with_certificate(cert_pem: str, db: Session) -> dict:
         "token_type":   "bearer",
         "org_id":       org.id,
         "org_name":     org.name,
-        "role":         org.role,
+        "role":         "super_admin" if org.role == "ca_admin" else org.role,
+        "is_privileged": bool(getattr(org, "is_privileged", False)),
+        "workspace_id": getattr(org, "workspace_id", None),
+        "is_workspace_admin": bool(getattr(org, "is_workspace_admin", False)),
     }
 
 
@@ -122,31 +126,73 @@ def require_auth(org: Organization = Depends(_get_current_org)) -> Organization:
     return org
 
 
+# ── Role helpers ──────────────────────────────────────────────────────────────
+
+# Elevated tiers (treat legacy 'ca_admin' as 'super_admin').
+SUPER_ADMIN = {"super_admin", "ca_admin"}
+ADMIN_TIER  = {"super_admin", "ca_admin", "admin"}
+
+
+def is_super_admin(org: Organization) -> bool:
+    return org.role in SUPER_ADMIN
+
+
+def is_admin_tier(org: Organization) -> bool:
+    return org.role in ADMIN_TIER
+
+
+def can_see_internals(org: Organization) -> bool:
+    """
+    Who may view Tessera anatomy (raw crypto artifacts) and the Trust Center:
+    super_admins, admins, and privileged auditors. Normal auditors and vendors may not.
+    """
+    if org.role in ADMIN_TIER:
+        return True
+    if org.role == "auditor" and bool(org.is_privileged):
+        return True
+    return False
+
+
 def require_auditor(org: Organization = Depends(_get_current_org)) -> Organization:
-    """Must be an auditor organization."""
-    if org.role != "auditor":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Auditor access required.",
-        )
+    """Must be an auditor (privileged or not). Admin-tier users also pass, since
+    they can perform any auditor action."""
+    if org.role != "auditor" and not is_admin_tier(org):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Auditor access required.")
+    return org
+
+
+def require_privileged_auditor(org: Organization = Depends(_get_current_org)) -> Organization:
+    """Must be able to see crypto internals (privileged auditor or admin-tier)."""
+    if not can_see_internals(org):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Privileged access required to view cryptographic internals.")
     return org
 
 
 def require_vendor(org: Organization = Depends(_get_current_org)) -> Organization:
     """Must be a vendor organization."""
     if org.role != "vendor":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Vendor access required.",
-        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Vendor access required.")
     return org
 
 
+def require_admin(org: Organization = Depends(_get_current_org)) -> Organization:
+    """Admin-tier (admin or super_admin). For org/cert management."""
+    if not is_admin_tier(org):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required.")
+    return org
+
+
+def require_super_admin(org: Organization = Depends(_get_current_org)) -> Organization:
+    """Super-admin only (the CA). For creating other elevated users and CA root key ops."""
+    if not is_super_admin(org):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Super-admin (CA) access required.")
+    return org
+
+
+# Legacy alias — existing routes importing require_ca_admin keep working, now
+# mapping to admin-tier management permission.
 def require_ca_admin(org: Organization = Depends(_get_current_org)) -> Organization:
-    """Must be the CA Admin."""
-    if org.role != "ca_admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="CA Admin access required.",
-        )
+    if not is_admin_tier(org):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required.")
     return org

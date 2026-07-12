@@ -1,3 +1,4 @@
+import Logo from '../components/Shared/Logo'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useToast } from '../components/Shared/Toast'
@@ -106,8 +107,7 @@ export default function MerkleDemo() {
       {/* Top bar */}
       <header className="h-14 bg-white dark:bg-neutral-900 border-b border-gray-200 dark:border-neutral-800 flex items-center justify-between px-6">
         <button onClick={() => navigate('/')} className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center"><span className="text-white text-[13px] font-bold">A</span></div>
-          <span className="text-[14px] font-semibold text-gray-900 dark:text-white">Attestr</span>
+          <Logo className="h-7" />
         </button>
         <span className="text-[12px] text-gray-400">Merkle tamper demo</span>
       </header>

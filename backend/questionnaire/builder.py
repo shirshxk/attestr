@@ -132,26 +132,6 @@ def get_questionnaire_with_questions(questionnaire_id: str, db: Session) -> dict
         .all()
     )
 
-    # Pull any saved answers (draft or submitted) so the vendor can review/edit
-    # instead of re-filling from scratch.
-    from models.database import Submission, Answer, Organization
-    existing_answers = {}
-    sub = (
-        db.query(Submission)
-        .filter(Submission.questionnaire_id == q.id, Submission.vendor_id == q.vendor_id)
-        .order_by(Submission.id.desc())
-        .first()
-    )
-    if sub:
-        for a in db.query(Answer).filter(Answer.submission_id == sub.id).all():
-            existing_answers[a.question_id] = {
-                "answer_value":  a.answer_value,
-                "evidence_note": a.evidence_note or "",
-            }
-
-    vendor = db.query(Organization).filter(Organization.id == q.vendor_id).first()
-    auditor = db.query(Organization).filter(Organization.id == q.auditor_id).first()
-
     return {
         "id":          q.id,
         "title":       q.title,
@@ -159,12 +139,8 @@ def get_questionnaire_with_questions(questionnaire_id: str, db: Session) -> dict
         "status":      q.status,
         "auditor_id":  q.auditor_id,
         "vendor_id":   q.vendor_id,
-        "vendor_name":  vendor.name if vendor else None,
-        "auditor_name": auditor.name if auditor else None,
         "deadline":    q.deadline.isoformat() if q.deadline else None,
         "created_at":  q.created_at.isoformat(),
-        "is_submitted": bool(sub and not sub.is_draft),
-        "existing_answers": existing_answers,
         "questions": [
             {
                 "id":            qq.id,

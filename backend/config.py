@@ -40,5 +40,35 @@ class Settings(BaseSettings):
         env_file_encoding = "utf-8"
 
 
+# Default values that must NOT survive into production.
+_INSECURE_DEFAULTS = {
+    "ca_passphrase": "dev-passphrase-change-in-production",
+    "jwt_secret":    "dev-jwt-secret-change-in-production",
+}
+
+
+def validate_production_secrets(s: "Settings") -> None:
+    """
+    Refuse to run in production with shipped default secrets. Called at startup.
+    In development/test these defaults are allowed so the demo just works.
+    """
+    if s.attestr_env != "production":
+        return
+    problems = []
+    for field, default in _INSECURE_DEFAULTS.items():
+        value = getattr(s, field, None)
+        if not value or value == default:
+            problems.append(field)
+        elif len(value) < 16:
+            problems.append(f"{field} (too short, need ≥16 chars)")
+    if problems:
+        raise RuntimeError(
+            "Refusing to start in production with insecure secrets: "
+            + ", ".join(problems)
+            + ". Set strong values via environment variables "
+            "(CA_PASSPHRASE, JWT_SECRET)."
+        )
+
+
 # Single shared instance imported everywhere
 settings = Settings()

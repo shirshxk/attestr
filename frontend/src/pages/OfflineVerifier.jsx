@@ -1,3 +1,4 @@
+import Logo from '../components/Shared/Logo'
 import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { IconArrowRight, IconCheck, IconX } from '../components/Layout/icons'
@@ -104,6 +105,69 @@ function canonical(obj) {
 
 async function hashLeaf(answer) { return sha256Hex(canonical(answer)) }
 
+// ── Client-side ECDSA (P-256) verification of the signed Merkle root ─────────
+// The bundle embeds vendor_public_key (SPKI PEM) and a DER-encoded ECDSA
+// signature over the UTF-8 bytes of the merkle_root hex string.
+// Web Crypto needs: SPKI bytes for the key, and the signature as raw r||s.
+
+function pemToBytes(pem) {
+  const b64 = pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '')
+  const bin = atob(b64)
+  const out = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+  return out
+}
+
+function hexToBytes(hex) {
+  const out = new Uint8Array(hex.length / 2)
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16)
+  return out
+}
+
+// Convert a DER ECDSA signature (SEQUENCE of two INTEGERs) to raw r||s (64 bytes for P-256)
+function derToRaw(der) {
+  let i = 0
+  if (der[i++] !== 0x30) throw new Error('Bad DER: no sequence')
+  if (der[i] & 0x80) i += (der[i] & 0x7f) + 1; else i++  // skip seq length
+  const readInt = () => {
+    if (der[i++] !== 0x02) throw new Error('Bad DER: no integer')
+    let len = der[i++]
+    if (len & 0x80) { const n = len & 0x7f; len = 0; for (let j = 0; j < n; j++) len = (len << 8) | der[i++] }
+    let v = der.slice(i, i + len); i += len
+    while (v.length > 32 && v[0] === 0) v = v.slice(1)   // strip leading zero pad
+    if (v.length > 32) throw new Error('Integer too long for P-256')
+    const out = new Uint8Array(32); out.set(v, 32 - v.length)
+    return out
+  }
+  const r = readInt(), s = readInt()
+  const raw = new Uint8Array(64); raw.set(r, 0); raw.set(s, 32)
+  return raw
+}
+
+// Returns true/false, or null if ECDSA can't run here (no Web Crypto, missing fields)
+async function verifyEcdsa(bundle) {
+  try {
+    if (!(typeof crypto !== 'undefined' && crypto.subtle && crypto.subtle.verify)) return null
+    const pubPem = bundle.vendor_public_key
+    const sigHex = bundle.ecdsa_signature
+    const root   = bundle.merkle_root
+    if (!pubPem || !sigHex || !root) return null
+    const key = await crypto.subtle.importKey(
+      'spki', pemToBytes(pubPem),
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      false, ['verify'],
+    )
+    const raw = derToRaw(hexToBytes(sigHex))
+    return await crypto.subtle.verify(
+      { name: 'ECDSA', hash: 'SHA-256' },
+      key, raw, new TextEncoder().encode(root),
+    )
+  } catch (e) {
+    console.warn('ECDSA verify error:', e)
+    return null
+  }
+}
+
 async function buildTree(leaves) {
   const levels = [leaves.slice()]
   let cur = leaves.slice()
@@ -168,11 +232,16 @@ export default function OfflineVerifier({ embedded = false }) {
       const computedRoot = levels[levels.length - 1][0]
       const rootMatches = computedRoot === signedRoot
 
+      // 4. Authenticity: verify the vendor's ECDSA signature over the signed root,
+      //    entirely in the browser (null = couldn't run, e.g. no Web Crypto)
+      const ecdsaOk = await verifyEcdsa(b)
+
       setResult({
-        ok: rootMatches && tampered.length === 0,
+        ok: rootMatches && tampered.length === 0 && ecdsaOk !== false,
         computedRoot,
         signedRoot,
         rootMatches,
+        ecdsaOk,
         tampered,
         leafCount: recomputedLeaves.length,
         snapshot,
@@ -255,6 +324,16 @@ export default function OfflineVerifier({ embedded = false }) {
                 <div className={`text-[11.5px] font-medium ${result.rootMatches ? 'text-emerald-600' : 'text-red-600'}`}>
                   {result.rootMatches ? '✓ Roots match exactly' : '✗ Roots differ — the data does not match the signature'}
                 </div>
+                {result.ecdsaOk !== null && (
+                  <div className="pt-2 border-t border-gray-100 dark:border-neutral-800">
+                    <div className="text-[10.5px] font-semibold text-gray-400 uppercase tracking-wide mb-1">ECDSA signature (verified in your browser)</div>
+                    <div className={`text-[11.5px] font-medium ${result.ecdsaOk ? 'text-emerald-600' : 'text-red-600'}`}>
+                      {result.ecdsaOk
+                        ? '✓ Signature verifies against the vendor public key — this root was signed by the key holder'
+                        : '✗ Signature does NOT verify — the root or signature was altered, or signed by a different key'}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -279,7 +358,7 @@ export default function OfflineVerifier({ embedded = false }) {
 
             {/* What this does and doesn't prove — honesty */}
             <div className="bg-gray-50 dark:bg-neutral-900/50 border border-gray-200 dark:border-neutral-800 rounded-xl p-4 text-[11.5px] text-gray-500 dark:text-neutral-400 leading-relaxed">
-              This offline check recomputes the Merkle tree and confirms the answers match the signed root — proving <span className="font-medium text-gray-700 dark:text-neutral-300">integrity</span> with no server. The bundle also carries an ECDSA signature{result.hasSignature ? ' ✓' : ''}, a vendor certificate{result.hasCert ? ' ✓' : ''}, and an RFC 3161 timestamp{result.hasTimestamp ? ' ✓' : ''}; full signature-and-certificate-chain validation requires the CA public key and runs in the auditor dashboard.
+              This offline check proves <span className="font-medium text-gray-700 dark:text-neutral-300">integrity</span> (the answers match the signed Merkle root){result.ecdsaOk ? <> and <span className="font-medium text-gray-700 dark:text-neutral-300">authenticity</span> (the ECDSA signature verifies against the vendor's public key)</> : null} — all with no server. {result.ecdsaOk === null && 'The ECDSA check needs native Web Crypto (HTTPS or localhost) and was skipped here. '}The bundle also carries the vendor certificate{result.hasCert ? ' ✓' : ''} and an RFC 3161 timestamp{result.hasTimestamp ? ' ✓' : ''}; certificate-chain validation against the CA and timestamp validation run in the auditor dashboard.
             </div>
 
             <button onClick={reset} className="text-[12.5px] font-medium text-blue-600 hover:text-blue-700">Verify another file →</button>
@@ -296,8 +375,7 @@ export default function OfflineVerifier({ embedded = false }) {
     <div className="min-h-screen bg-[#fafaf8] dark:bg-neutral-950 text-gray-900 dark:text-white">
       <header className="h-14 flex items-center justify-between px-6 lg:px-12 border-b border-gray-200 dark:border-neutral-800 bg-white/80 dark:bg-neutral-950/80 backdrop-blur">
         <button onClick={() => navigate('/')} className="flex items-center gap-2">
-          <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center"><span className="text-white text-[13px] font-bold">A</span></div>
-          <span className="text-[14px] font-semibold">Attestr</span>
+          <Logo className="h-7" />
         </button>
         <span className="text-[12px] text-gray-400">Offline verifier</span>
       </header>

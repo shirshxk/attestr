@@ -50,9 +50,11 @@ def verify_tessera(bundle: dict, answers: list = None) -> dict:
         "ecdsa_valid":      False,
         "merkle_valid":     False,
         "timestamp_valid":  False,
+        "integrity_valid":  False,
         "merkle_details":   None,
         "cert_detail":      "",
         "timestamp_detail": "",
+        "integrity_detail": "",
         "bundle_id":        bundle.get("bundle_id"),
     }
 
@@ -117,6 +119,20 @@ def verify_tessera(bundle: dict, answers: list = None) -> dict:
         result["timestamp_valid"]  = False
         result["timestamp_detail"] = "No timestamp token in bundle"
 
+    # 5. Verify bundle integrity — all required cryptographic artifacts present.
+    # A well-formed Tessera must carry every component needed for independent
+    # verification; a missing field means the bundle can't stand on its own.
+    required_fields = [
+        "vendor_certificate", "merkle_root", "ecdsa_signature",
+        "rfc3161_timestamp_token", "encrypted_payload",
+    ]
+    missing = [f for f in required_fields if not bundle.get(f)]
+    result["integrity_valid"]  = len(missing) == 0
+    result["integrity_detail"] = (
+        "All required artifacts present" if not missing
+        else f"Missing: {', '.join(missing)}"
+    )
+
     # Overall
     result["overall_valid"] = all([
         result["cert_valid"],
@@ -124,6 +140,7 @@ def verify_tessera(bundle: dict, answers: list = None) -> dict:
         result["ecdsa_valid"],
         result["merkle_valid"],
         result["timestamp_valid"],
+        result["integrity_valid"],
     ])
 
     return result

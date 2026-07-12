@@ -147,18 +147,16 @@ def approve_vendor_request(
     )
     cert = Certificate(
         org_id=vendor.id, serial_number=serial,
-        cert_pem=cert_pem, public_key_pem=pub_pem,
-        private_key_pem=priv_pem, expires_at=expires,
+        cert_pem=cert_pem, public_key_pem=pub_pem, expires_at=expires,
     )
     db.add(cert)
-    db.flush()
 
-    # Mirror to keystore file (best effort; DB column is the primary store)
+    # Save private key to keystore for demo quick-login
     try:
-        from keystore.store import org_key_path, KeystoreManager
-        from config import settings
-        _ks = KeystoreManager(org_key_path(vendor.id), settings.ca_passphrase)
-        _ks.store_key("private_key", priv_pem); _ks.save()
+        ks_path = settings.ca_keystore_path.replace("ca_keystore", f"vendor_{vendor.id}_key")
+        ks = KeystoreManager(ks_path, settings.ca_passphrase)
+        ks.store_key("private_key", priv_pem)
+        ks.save()
     except Exception:
         pass
 

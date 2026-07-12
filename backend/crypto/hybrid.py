@@ -80,8 +80,9 @@ def encrypt_payload(
         salt = os.urandom(32)
     aes_key = derive_aes_key(shared_secret, salt=salt)
 
-    # 4. Serialize payload
-    if isinstance(payload, dict):
+    # 4. Serialize payload — JSON for any structured data (dict or list),
+    #    raw bytes pass through unchanged.
+    if isinstance(payload, (dict, list)):
         plaintext = json.dumps(payload, separators=(',', ':')).encode()
     else:
         plaintext = payload

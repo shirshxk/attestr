@@ -5,6 +5,7 @@ import App from './App'
 import { AuthProvider } from './hooks/useAuth'
 import { ToastProvider } from './components/Shared/Toast'
 import { ModalProvider } from './components/Shared/Modal'
+import ErrorBoundary from './components/Shared/ErrorBoundary'
 import './index.css'
 
 // Apply saved theme before first paint
@@ -18,7 +19,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <AuthProvider>
         <ToastProvider>
           <ModalProvider>
-            <App />
+            <ErrorBoundary>
+              <App />
+            </ErrorBoundary>
           </ModalProvider>
         </ToastProvider>
       </AuthProvider>

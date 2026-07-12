@@ -1,3 +1,4 @@
+import Logo from '../components/Shared/Logo'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
@@ -65,7 +66,7 @@ export default function HomePage() {
 
   const goDash = () => {
     if (!org) return navigate('/login')
-    navigate(org.role === 'ca_admin' ? '/admin' : org.role === 'auditor' ? '/auditor' : '/vendor')
+    navigate(['ca_admin','super_admin','admin'].includes(org.role) ? '/admin' : org.role === 'auditor' ? '/auditor' : '/vendor')
   }
 
   return (
@@ -73,8 +74,7 @@ export default function HomePage() {
       {/* NAV */}
       <nav className="fixed top-0 inset-x-0 z-50 h-14 flex items-center justify-between px-6 lg:px-12 bg-[#fafaf8]/90 dark:bg-neutral-950/90 backdrop-blur border-b border-gray-200 dark:border-neutral-800">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center"><span className="text-white text-[13px] font-bold">A</span></div>
-          <span className="text-[15px] font-semibold">Attestr</span>
+          <Logo className="h-9" />
         </div>
         <div className="hidden md:flex items-center gap-1">
           <a href="#how" className="text-[13.5px] text-gray-600 dark:text-neutral-400 px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-neutral-800">How it works</a>
@@ -178,7 +178,7 @@ export default function HomePage() {
 
       <footer className="border-t border-gray-200 dark:border-neutral-800">
         <div className="max-w-[1240px] mx-auto px-6 lg:px-12 py-8 flex items-center justify-between">
-          <div className="flex items-center gap-2"><div className="w-5 h-5 bg-blue-600 rounded flex items-center justify-center"><span className="text-white text-[10px] font-bold">A</span></div><span className="text-[13px] font-semibold">Attestr</span></div>
+          <div className="flex items-center gap-2"><Logo className="h-7" /></div>
           <div className="text-[11.5px] text-gray-400 font-mono">secp256r1 · AES-256-GCM · Argon2id · RFC 3161</div>
         </div>
       </footer>

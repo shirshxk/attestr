@@ -224,6 +224,77 @@ class CertificateAuthority:
 
     # ── Verification ─────────────────────────────────────────────────────────
 
+    def sign_csr(
+        self,
+        csr_pem: str,
+        org_id: str,
+        org_name: str,
+        org_role: str,
+        email: str,
+    ) -> tuple[str, str, str, datetime.datetime]:
+        """
+        Sign a Certificate Signing Request (PKCS#10) and issue an X.509 cert.
+
+        This is the real-PKI path: the CA never generates or sees the private
+        key. It receives a CSR (which carries only the *public* key plus the
+        requester's proof-of-possession signature), verifies that signature,
+        then issues a certificate binding the Attestr subject fields to that
+        public key.
+
+        Returns: (cert_pem, public_key_pem, serial_hex, expires)
+        """
+        if not self._ca_private_key or not self._ca_cert:
+            raise RuntimeError("CA not initialized. Call initialize() first.")
+
+        csr = x509.load_pem_x509_csr(csr_pem.encode())
+
+        # Proof of possession: the CSR must be self-signed by the requester's key.
+        if not csr.is_signature_valid:
+            raise ValueError("CSR signature is invalid (proof-of-possession failed).")
+
+        pub = csr.public_key()
+        # Enforce ECC P-256 to match the rest of the platform.
+        if not isinstance(pub, ec.EllipticCurvePublicKey) or not isinstance(pub.curve, ec.SECP256R1):
+            raise ValueError("CSR public key must be an ECC P-256 key.")
+
+        # We set the subject ourselves (authoritative), ignoring any subject the
+        # client put in the CSR — the CA decides identity, not the requester.
+        subject = x509.Name([
+            x509.NameAttribute(NameOID.COMMON_NAME, org_name),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Attestr Platform"),
+            x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, org_role),
+            x509.NameAttribute(NameOID.SERIAL_NUMBER, org_id),
+            x509.NameAttribute(NameOID.EMAIL_ADDRESS, email),
+        ])
+
+        now     = datetime.datetime.utcnow()
+        expires = now + datetime.timedelta(days=settings.cert_validity_days)
+
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(subject)
+            .issuer_name(self._ca_cert.subject)
+            .public_key(pub)                       # ← the requester's public key, from the CSR
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now)
+            .not_valid_after(expires)
+            .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+            .add_extension(x509.SubjectKeyIdentifier.from_public_key(pub), critical=False)
+            .add_extension(
+                x509.AuthorityKeyIdentifier.from_issuer_public_key(self._ca_private_key.public_key()),
+                critical=False,
+            )
+            .sign(self._ca_private_key, hashes.SHA256())
+        )
+
+        cert_pem = cert.public_bytes(serialization.Encoding.PEM).decode()
+        public_key_pem = pub.public_bytes(
+            serialization.Encoding.PEM,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        ).decode()
+        serial_hex = format(cert.serial_number, "x")
+        return cert_pem, public_key_pem, serial_hex, expires
+
     def verify_certificate(self, cert_pem: str) -> dict:
         """
         Verify that a PEM certificate was signed by this CA and is not revoked.

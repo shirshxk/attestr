@@ -28,18 +28,10 @@ from config import settings
 
 # ── Engine + session factory ──────────────────────────────────────────────────
 
-# SQLite needs check_same_thread=False; Postgres/other DBs must NOT receive it.
-# Also normalize the old 'postgres://' scheme to 'postgresql://' that SQLAlchemy expects.
-_db_url = settings.database_url
-if _db_url.startswith("postgres://"):
-    _db_url = _db_url.replace("postgres://", "postgresql://", 1)
-
-if _db_url.startswith("sqlite"):
-    engine = create_engine(_db_url, connect_args={"check_same_thread": False})
-else:
-    # Postgres (Azure Database for PostgreSQL): pool_pre_ping avoids stale
-    # connections being handed out after the DB closes idle ones.
-    engine = create_engine(_db_url, pool_pre_ping=True)
+engine = create_engine(
+    settings.database_url,
+    connect_args={"check_same_thread": False},  # needed for SQLite
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
@@ -64,14 +56,39 @@ def new_uuid() -> str:
 
 # ── Organizations ─────────────────────────────────────────────────────────────
 
+class Workspace(Base):
+    """
+    A team/firm grouping for auditors or vendors. Members of the same workspace
+    can view each other's work (owned-but-visible). Created by a super-admin,
+    managed by a workspace admin who can invite teammates.
+    """
+    __tablename__ = "workspaces"
+
+    id          = Column(String, primary_key=True, default=new_uuid)
+    name        = Column(String(255), nullable=False)
+    kind        = Column(Enum("auditor", "vendor", name="workspace_kind"), nullable=False)
+    created_by  = Column(String, nullable=True)     # super-admin org_id
+    created_at  = Column(DateTime, default=datetime.utcnow)
+
+
 class Organization(Base):
     __tablename__ = "organizations"
 
     id            = Column(String, primary_key=True, default=new_uuid)
     name          = Column(String(255), nullable=False)
-    role          = Column(Enum("ca_admin", "auditor", "vendor", name="org_role"), nullable=False)
+    # Roles: super_admin (the CA, top authority) > admin (manager) > auditor > vendor.
+    # 'ca_admin' is kept as a legacy alias and migrated to 'super_admin' at startup.
+    role          = Column(Enum("super_admin", "admin", "ca_admin", "auditor", "vendor", name="org_role"), nullable=False)
+    # Only meaningful for auditors: a privileged auditor can see Tessera anatomy
+    # and the Trust Center (same view tier as admins).
+    is_privileged = Column(Boolean, default=False)
     email         = Column(String(255), unique=True, nullable=False)
     is_active     = Column(Boolean, default=True)
+    created_by    = Column(String, nullable=True)   # org_id of the elevated user who created this org
+    # Workspace membership: auditors/vendors can belong to a shared team. Teammates
+    # see each other's work (owned-but-visible). Null = not in a workspace.
+    workspace_id        = Column(String, ForeignKey("workspaces.id"), nullable=True)
+    is_workspace_admin  = Column(Boolean, default=False)   # can invite teammates into their workspace
     created_at    = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
@@ -111,7 +128,6 @@ class Certificate(Base):
     serial_number     = Column(String(64), unique=True, nullable=False)
     cert_pem          = Column(Text, nullable=False)           # full X.509 PEM
     public_key_pem    = Column(Text, nullable=False)
-    private_key_pem   = Column(Text, nullable=True)            # demo: vendor/auditor signing key (simulated local keystore)
     issued_at         = Column(DateTime, default=datetime.utcnow)
     expires_at        = Column(DateTime, nullable=False)
     is_revoked        = Column(Boolean, default=False)
@@ -119,6 +135,42 @@ class Certificate(Base):
     revocation_reason = Column(String(255), nullable=True)
 
     organization = relationship("Organization", back_populates="certificates")
+
+
+
+# ── Vendor ↔ Auditor-workspace assignment ─────────────────────────────────────
+# A vendor can be assigned to one or more auditor workspaces (many-to-many).
+# Auditors only see vendors assigned to their workspace; vendors see all their
+# questionnaires regardless of which workspace assigned them.
+
+class VendorWorkspaceAccess(Base):
+    __tablename__ = "vendor_workspace_access"
+
+    id           = Column(String, primary_key=True, default=new_uuid)
+    vendor_id    = Column(String, ForeignKey("organizations.id"), nullable=False)
+    workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
+    created_at   = Column(DateTime, default=datetime.utcnow)
+
+
+# ── Enrollment (CSR-based, key never leaves the user's device) ────────────────
+
+class Enrollment(Base):
+    """
+    A pending certificate enrollment. The CA admin creates the org + an
+    enrollment token; the user later opens the enrollment link, generates a
+    keypair in their browser, and submits a CSR. No private key is ever stored
+    or transmitted to the server.
+    """
+    __tablename__ = "enrollments"
+
+    id           = Column(String, primary_key=True, default=new_uuid)
+    org_id       = Column(String, ForeignKey("organizations.id"), nullable=False)
+    token        = Column(String(128), unique=True, nullable=False)
+    status       = Column(String(20), default="pending")   # pending | completed | expired
+    created_by   = Column(String, nullable=True)            # admin org_id who created it
+    created_at   = Column(DateTime, default=datetime.utcnow)
+    expires_at   = Column(DateTime, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
 
 
 # ── Questionnaires ────────────────────────────────────────────────────────────
@@ -197,6 +249,7 @@ class Answer(Base):
     answer_type      = Column(String(64), nullable=False)
     evidence_note    = Column(Text, nullable=True)
     answered_at      = Column(DateTime, default=datetime.utcnow)
+    answered_at_iso  = Column(String(64), nullable=True)   # exact ISO string hashed into the Merkle leaf
     merkle_leaf_hash = Column(String(64), nullable=True)   # SHA-256 hex
 
     submission = relationship("Submission", back_populates="answers")

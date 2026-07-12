@@ -3,6 +3,7 @@ import api from '../lib/api'
 import AppLayout from '../components/Layout/AppLayout'
 import { useToast } from '../components/Shared/Toast'
 import { IconArrowRight, IconCheck, IconClock, IconDownload } from '../components/Layout/icons'
+import MyTeamPage from './MyTeamPage'
 
 const STATUS = {
   pending:        'bg-gray-100 text-gray-600 dark:bg-neutral-800 dark:text-neutral-300',
@@ -18,6 +19,7 @@ function Card({ children, className='' }) {
 }
 
 export default function VendorDashboard() {
+  const onTeam = typeof window !== 'undefined' && window.location.pathname.startsWith('/vendor/team')
   const toast = useToast()
   const [qs, setQs] = useState([])
   const [view, setView] = useState('list')  // list | fill | done
@@ -77,6 +79,12 @@ export default function VendorDashboard() {
   const total = detail?.questions?.length || 0
   const pct = total ? answered/total*100 : 0
 
+  if (onTeam) return (
+    <AppLayout title="My team" subtitle="Your workspace and teammates">
+      <MyTeamPage />
+    </AppLayout>
+  )
+
   return (
     <AppLayout
       title={view === 'fill' && detail ? detail.title : 'My questionnaires'}
@@ -110,7 +118,7 @@ export default function VendorDashboard() {
                 </div>
               </div>
               <button onClick={() => open(q)} className="flex items-center gap-1.5 text-[12.5px] font-semibold text-blue-600 hover:text-blue-700">
-                {q.status === 'pending' ? 'Start answering' : 'View / Edit'} <IconArrowRight width={15} height={15}/>
+                {q.status === 'pending' ? 'Start answering' : q.status === 'in_remediation' ? 'Fix flagged answers' : q.status === 'closed' ? 'View (closed)' : 'View (sealed)'} <IconArrowRight width={15} height={15}/>
               </button>
             </Card>
           ))}
@@ -138,19 +146,24 @@ export default function VendorDashboard() {
               <div className="h-full bg-blue-600 rounded-full transition-all" style={{ width:`${pct}%` }}/>
             </div>
             <span className="text-[12px] text-gray-500 dark:text-neutral-400 whitespace-nowrap">{answered} / {total}</span>
+            {!['closed','submitted','under_review'].includes(detail.status) ? (<>
             <button onClick={saveDraft} disabled={busy} className="text-[12px] font-medium border border-gray-200 dark:border-neutral-700 px-3 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-neutral-800 disabled:opacity-50">Save draft</button>
             <button onClick={submit} disabled={busy} className="text-[12.5px] font-semibold bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-lg disabled:opacity-50">{busy ? 'Signing…' : 'Sign & submit'}</button>
+            </>) : (
+            <span className="text-[11.5px] font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 px-3 py-1.5 rounded-lg">{detail.status === 'closed' ? 'Cycle closed — read only' : 'Sealed & submitted — editable only if the auditor flags answers'}</span>
+            )}
           </Card>
           <div className="space-y-3">
             {detail.questions.map(q => {
               const flag = flags[q.question_id]
               const inRemediation = detail.status === 'in_remediation'
-              const locked = inRemediation && !flag   // only flagged answers are editable in remediation
+              const isSealed = ['closed','submitted','under_review'].includes(detail.status)
+              const locked = isSealed || (inRemediation && !flag)   // sealed = all locked; remediation = only flagged editable
               return (
               <Card key={q.id} className={`p-4 ${flag ? 'border-orange-300 dark:border-orange-500/40' : ''} ${locked ? 'opacity-60' : ''}`}>
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="mono text-[10.5px] text-gray-400">{q.question_id}</span>
-                  {locked && <span className="text-[10px] font-medium text-gray-400 flex items-center gap-1">locked · accepted</span>}
+                  {locked && <span className="text-[10px] font-medium text-gray-400 flex items-center gap-1">{inRemediation ? 'locked · accepted' : 'locked · sealed'}</span>}
                 </div>
                 <div className="text-[13.5px] font-medium text-gray-900 dark:text-white mb-3">{q.question_text}{q.is_required && <span className="text-red-500 ml-1">*</span>}</div>
                 {flag && (
@@ -178,13 +191,29 @@ export default function VendorDashboard() {
                 )}
                 {q.question_type === 'file_attachment' && (
                   <div className="mb-2">
-                    <label className={`flex items-center gap-2 text-[12.5px] border border-dashed border-gray-300 dark:border-neutral-700 rounded-lg px-3 py-2.5 cursor-pointer hover:border-blue-400 ${locked ? 'pointer-events-none' : ''}`}>
+                    <label className={`flex items-center gap-2 text-[12.5px] border border-dashed border-gray-300 dark:border-neutral-700 rounded-lg px-3 py-2.5 cursor-pointer hover:border-blue-400 ${locked ? 'pointer-events-none opacity-60' : ''}`}>
                       <IconDownload width={14} height={14} className="rotate-180 text-gray-400"/>
-                      <span className="text-gray-500 dark:text-neutral-400">{answers[q.question_id]?.answer_value ? answers[q.question_id].answer_value : 'Choose a file to attach…'}</span>
+                      <span className="text-gray-500 dark:text-neutral-400 truncate max-w-xs">
+                        {answers[q.question_id]?.answer_value
+                          ? (answers[q.question_id]?.display_name || answers[q.question_id].answer_value)
+                          : 'Choose a file to attach…'}
+                      </span>
                       <input type="file" disabled={locked} className="hidden"
-                        onChange={e => { const f = e.target.files[0]; if (f) setAns(q.question_id, f.name) }}/>
+                        onChange={async e => {
+                          const f = e.target.files[0]; if (!f) return
+                          const fd = new FormData()
+                          fd.append('file', f); fd.append('question_id', q.question_id)
+                          try {
+                            const r = await api.post(
+                              `/questionnaires/${detail.id}/answers/upload`, fd,
+                              { headers: { 'Content-Type': 'multipart/form-data' } }
+                            )
+                            setAns(q.question_id, r.data.download_path)
+                            setAnswers(prev => ({ ...prev, [q.question_id]: { ...(prev[q.question_id]||{}), answer_value: r.data.download_path, display_name: r.data.filename } }))
+                          } catch { toast.error('File upload failed.') }
+                        }}/>
                     </label>
-                    <p className="text-[10.5px] text-gray-400 mt-1">The filename and a hash are recorded in the bundle. (Demo: file content isn't uploaded.)</p>
+                    <p className="text-[10.5px] text-gray-400 mt-1">File is stored and auditors can download it from the bundle viewer.</p>
                   </div>
                 )}
                 <input disabled={locked} value={answers[q.question_id]?.evidence_note || ''} onChange={e => setNote(q.question_id, e.target.value)} placeholder="Evidence note (optional)"

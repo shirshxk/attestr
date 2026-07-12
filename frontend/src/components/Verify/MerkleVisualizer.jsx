@@ -85,9 +85,10 @@ export default function MerkleVisualizer({
   answers,        // array of answer objects for labels
   isValid,        // overall verification result
 }) {
+  const hasTree = Array.isArray(tree) && tree.length > 0 && Array.isArray(tree[0]) && tree[0].length > 0
   const { nodes, edges, totalW, totalH } = useMemo(
-    () => layoutTree(tree),
-    [tree]
+    () => (hasTree ? layoutTree(tree) : { nodes: [], edges: [], totalW: 0, totalH: 0 }),
+    [tree, hasTree]
   )
 
   // Which nodes are "tainted" (on the path from a failed leaf to root)?
@@ -112,15 +113,26 @@ export default function MerkleVisualizer({
   const isEdgeTainted = (edge) => taintedIds.has(edge.from.id) && taintedIds.has(edge.to.id)
 
   const getNodeColor = (node) => {
-    if (isFailed(node))  return { fill: '#fef2f2', stroke: '#ef4444', text: '#dc2626' }
-    if (isTainted(node)) return { fill: '#fff7ed', stroke: '#f97316', text: '#ea580c' }
-    if (isRoot(node))    return { fill: '#eff6ff', stroke: '#2563eb', text: '#1d4ed8' }
-    return { fill: '#f8fafc', stroke: '#cbd5e1', text: '#475569' }
+    if (isFailed(node))  return { fill: '#fee2e2', stroke: '#ef4444', text: '#b91c1c' }
+    if (isTainted(node)) return { fill: '#ffedd5', stroke: '#f97316', text: '#c2410c' }
+    if (isRoot(node))    return { fill: '#dbeafe', stroke: '#2563eb', text: '#1d4ed8' }
+    // Verified nodes are green. Only fall back to gray if the tree is actually invalid
+    // (some leaf failed) — those non-tainted nodes stay neutral to direct the eye to red.
+    if (isValid !== false) return { fill: '#bbf7d0', stroke: '#16a34a', text: '#15803d' }
+    return { fill: '#f1f5f9', stroke: '#cbd5e1', text: '#475569' }
   }
 
   const SVG_PAD = 20
   const svgW = totalW + SVG_PAD * 2
   const svgH = totalH + SVG_PAD * 2 + 20
+
+  if (!hasTree) {
+    return (
+      <div className="text-[12px] text-gray-400 py-4 text-center">
+        No Merkle tree to display for this bundle.
+      </div>
+    )
+  }
 
   return (
     <div className="w-full overflow-x-auto">
@@ -150,7 +162,7 @@ export default function MerkleVisualizer({
               key={edge.id}
               x1={edge.from.cx} y1={edge.from.y}
               x2={edge.to.cx}   y2={edge.to.y + NODE_H}
-              stroke={isEdgeTainted(edge) ? '#f97316' : '#e2e8f0'}
+              stroke={isEdgeTainted(edge) ? '#f97316' : (isValid !== false ? '#4ade80' : '#e2e8f0')}
               strokeWidth={isEdgeTainted(edge) ? 2 : 1.5}
               strokeDasharray={isEdgeTainted(edge) ? '4,3' : undefined}
             />
@@ -225,7 +237,7 @@ export default function MerkleVisualizer({
           <span>Root</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded bg-gray-50 border border-gray-300"/>
+          <div className="w-3 h-3 rounded bg-green-100 border border-green-500"/>
           <span>Node (valid)</span>
         </div>
         <div className="flex items-center gap-1.5">

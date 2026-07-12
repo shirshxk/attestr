@@ -16,4 +16,8 @@
 
 @layer components {
   .mono { font-family: 'JetBrains Mono', monospace; }
+
+  /* Dropdown menus must be fully opaque so list content never shows through. */
+  .dropdown-menu { background-color: #ffffff; }
+  .dark .dropdown-menu { background-color: #171717; }
 }

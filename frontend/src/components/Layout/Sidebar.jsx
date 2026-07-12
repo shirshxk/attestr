@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
+import Logo, { LogoMark } from '../Shared/Logo'
 import {
   IconGrid, IconKey, IconShield, IconChart, IconList, IconPlus,
   IconBox, IconUsers, IconLogout, IconSun, IconMoon,
@@ -8,12 +9,21 @@ import {
 } from './icons'
 
 const NAV = {
-  ca_admin: [
-    { path:'/admin',          label:'Overview',       Icon: IconGrid },
-    { path:'/admin/requests', label:'Vendor requests',Icon: IconInbox },
-    { path:'/admin/keys',     label:'Key management', Icon: IconKey },
-    { path:'/admin/log',      label:'Audit log',      Icon: IconShield },
-    { path:'/admin/trust',    label:'Trust Center',   Icon: IconChart },
+  super_admin: [
+    { path:'/admin',           label:'Overview',        Icon: IconGrid },
+    { path:'/admin/users',     label:'User management', Icon: IconUsers },
+    { path:'/admin/workspaces',label:'Workspaces',      Icon: IconBox },
+    { path:'/admin/requests',  label:'Vendor requests', Icon: IconInbox },
+    { path:'/admin/keys',      label:'Key management',  Icon: IconKey },
+    { path:'/admin/log',       label:'Audit log',       Icon: IconShield },
+    { path:'/admin/trust',     label:'Trust Center',    Icon: IconChart },
+  ],
+  admin: [
+    { path:'/admin',          label:'Overview',        Icon: IconGrid },
+    { path:'/admin/users',    label:'User management', Icon: IconUsers },
+    { path:'/admin/requests', label:'Vendor requests', Icon: IconInbox },
+    { path:'/admin/log',      label:'Audit log',       Icon: IconShield },
+    { path:'/admin/trust',    label:'Trust Center',    Icon: IconChart },
   ],
   auditor: [
     { path:'/auditor',         label:'Pipeline',        Icon: IconGrid },
@@ -21,15 +31,31 @@ const NAV = {
     { path:'/auditor/vendors', label:'Vendors',         Icon: IconUsers },
     { path:'/auditor/bundle',  label:'Bundle viewer',   Icon: IconBox },
     { path:'/auditor/verify',  label:'Offline verify',  Icon: IconShield },
-    { path:'/auditor/trust',   label:'Trust Center',    Icon: IconChart },
+    // Trust Center appended only for privileged auditors (see navFor)
   ],
   vendor: [
     { path:'/vendor',       label:'My questionnaires', Icon: IconList },
   ],
 }
 
-const ROLE_LABEL = { ca_admin:'CA Admin', auditor:'Auditor', vendor:'Vendor' }
-const ROLE_COLOR = { ca_admin:'bg-amber-500', auditor:'bg-blue-600', vendor:'bg-emerald-600' }
+// Resolve nav for an org, honoring role aliases and the privileged-auditor flag.
+function navFor(org) {
+  let role = org?.role || 'vendor'
+  if (role === 'ca_admin') role = 'super_admin'
+  const base = (NAV[role] || []).slice()
+  if (role === 'auditor' && org?.is_privileged) {
+    base.push({ path:'/auditor/trust', label:'Trust Center', Icon: IconChart })
+  }
+  // Workspace admins (auditor or vendor) get a "My team" panel to invite teammates.
+  if (org?.is_workspace_admin && (role === 'auditor' || role === 'vendor')) {
+    const teamPath = role === 'auditor' ? '/auditor/team' : '/vendor/team'
+    base.push({ path: teamPath, label: 'My team', Icon: IconUsers })
+  }
+  return base
+}
+
+const ROLE_LABEL = { super_admin:'Super Admin', ca_admin:'Super Admin', admin:'Admin', auditor:'Auditor', vendor:'Vendor' }
+const ROLE_COLOR = { super_admin:'bg-amber-500', ca_admin:'bg-amber-500', admin:'bg-orange-500', auditor:'bg-blue-600', vendor:'bg-emerald-600' }
 
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(
@@ -42,8 +68,8 @@ export default function Sidebar() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  const role  = org?.role || 'vendor'
-  const items = NAV[role] || []
+  const role  = (org?.role === 'ca_admin' ? 'super_admin' : org?.role) || 'vendor'
+  const items = navFor(org)
   const W = collapsed ? 64 : 232
 
   useEffect(() => {
@@ -65,16 +91,13 @@ export default function Sidebar() {
       {/* Logo + collapse */}
       <div className="h-14 flex items-center justify-between px-3.5 border-b border-gray-100 dark:border-neutral-800 flex-shrink-0">
         {!collapsed && (
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center">
-              <span className="text-white text-[13px] font-bold">A</span>
-            </div>
-            <span className="text-[14px] font-semibold text-gray-900 dark:text-white tracking-tight">Attestr</span>
+          <div className="flex items-center">
+            <Logo className="h-9" />
           </div>
         )}
         {collapsed && (
-          <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center mx-auto">
-            <span className="text-white text-[13px] font-bold">A</span>
+          <div className="mx-auto">
+            <LogoMark size={26} />
           </div>
         )}
         {!collapsed && (

@@ -1,0 +1,11 @@
+# Lightweight lint config — catches real bugs without fighting existing style.
+line-length = 120
+target-version = "py311"
+
+[lint]
+select = ["E", "F", "W"]   # pyflakes (F) catches undefined names, unused imports
+ignore = [
+    "E501",  # line length handled loosely
+    "E402",  # module import not at top (project uses inline imports intentionally)
+    "E722",  # bare except (tracked separately as tech debt)
+]

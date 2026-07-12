@@ -66,10 +66,6 @@ def test_proof_verification():
 
 
 def test_tamper_detection_single_answer():
-    """
-    THE CORE TEST: Tampering with one answer must fail verification.
-    This is the showstopper demo moment.
-    """
     result = build_merkle_for_answers(ANSWERS)
     root   = result["root"]
     tree   = result["tree"]

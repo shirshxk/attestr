@@ -39,8 +39,7 @@ class InviteRequest(BaseModel):
 
 
 class RevokeCertRequest(BaseModel):
-    serial_hex: str | None = None
-    org_id: str | None = None
+    serial_hex: str
     reason: str = "unspecified"
 
 
@@ -188,19 +187,10 @@ def issue_certificate(
         serial_number=serial_hex,
         cert_pem=cert_pem,
         public_key_pem=public_key_pem,
-        private_key_pem=private_key_pem,
         expires_at=expires,
     )
     db.add(cert_record)
     db.commit()
-
-    try:
-        from keystore.store import org_key_path, KeystoreManager
-        from config import settings
-        _ks = KeystoreManager(org_key_path(org.id), settings.ca_passphrase)
-        _ks.store_key("private_key", private_key_pem); _ks.save()
-    except Exception:
-        pass
 
     append_log(db, "cert_issued", actor_id=admin.id, target_id=org.id,
                details={"serial": serial_hex, "expires_at": expires.isoformat()})
@@ -224,23 +214,14 @@ def revoke_certificate(
     admin: Organization = Depends(require_ca_admin),
     db: Session = Depends(get_db),
 ):
-    """Revoke a certificate by serial number or org_id. Adds it to the CRL."""
-    if body.org_id:
-        cert = db.query(Certificate).filter(
-            Certificate.org_id == body.org_id,
-            Certificate.is_revoked == False,  # noqa
-        ).first()
-    elif body.serial_hex:
-        cert = db.query(Certificate).filter(
-            Certificate.serial_number == body.serial_hex
-        ).first()
-    else:
-        raise HTTPException(status_code=400, detail="Provide org_id or serial_hex.")
+    """Revoke a certificate by serial number. Adds it to the CRL."""
+    cert = db.query(Certificate).filter(
+        Certificate.serial_number == body.serial_hex
+    ).first()
     if not cert:
         raise HTTPException(status_code=404, detail="Certificate not found.")
 
-    serial = cert.serial_number
-    ca.revoke_certificate(serial, body.reason)
+    ca.revoke_certificate(body.serial_hex, body.reason)
 
     cert.is_revoked        = True
     cert.revoked_at        = datetime.utcnow()
@@ -248,9 +229,9 @@ def revoke_certificate(
     db.commit()
 
     append_log(db, "cert_revoked", actor_id=admin.id, target_id=cert.org_id,
-               details={"serial": serial, "reason": body.reason})
+               details={"serial": body.serial_hex, "reason": body.reason})
 
-    return {"message": "Certificate revoked.", "serial_hex": serial}
+    return {"message": "Certificate revoked.", "serial_hex": body.serial_hex}
 
 
 # ── Organizations list ────────────────────────────────────────────────────────
@@ -333,7 +314,9 @@ def get_platform_stats(
 
     return {
         "total_orgs":           db.query(Organization).count(),
+        "super_admin_count":    db.query(Organization).filter(Organization.role.in_(["super_admin","ca_admin"])).count(),
         "auditor_count":        db.query(Organization).filter(Organization.role == "auditor").count(),
+        "privileged_auditors":  db.query(Organization).filter(Organization.role == "auditor", Organization.is_privileged == True).count(),  # noqa
         "vendor_count":         db.query(Organization).filter(Organization.role == "vendor").count(),
         "active_certs":         db.query(Certificate).filter(Certificate.is_revoked == False).count(),  # noqa
         "revoked_certs":        db.query(Certificate).filter(Certificate.is_revoked == True).count(),   # noqa
@@ -351,12 +334,24 @@ def list_vendors(
     db: Session = Depends(get_db),
 ):
     """
-    Return all vendor organizations with active certificates.
-    Accessible by auditors (and ca_admin) so they can populate
-    the vendor dropdown when creating a questionnaire.
+    Return vendor organizations visible to this caller.
+    - super_admin / ca_admin: all vendors.
+    - Auditor in a workspace: only vendors assigned to their workspace via
+      VendorWorkspaceAccess (privacy — auditor firms shouldn't see each other's vendors).
+    - Auditor not in a workspace: all vendors (backwards-compat for demo orgs).
     """
-    from models.database import Certificate
-    vendors = db.query(Organization).filter(Organization.role == "vendor").all()
+    from models.database import Certificate, VendorWorkspaceAccess
+    if org.role == "auditor" and org.workspace_id:
+        assigned_ids = [a.vendor_id for a in db.query(VendorWorkspaceAccess).filter(
+            VendorWorkspaceAccess.workspace_id == org.workspace_id
+        ).all()]
+        vendors = db.query(Organization).filter(
+            Organization.role == "vendor",
+            Organization.id.in_(assigned_ids),
+        ).all() if assigned_ids else []
+    else:
+        vendors = db.query(Organization).filter(Organization.role == "vendor").all()
+
     result = []
     for v in vendors:
         cert = db.query(Certificate).filter(

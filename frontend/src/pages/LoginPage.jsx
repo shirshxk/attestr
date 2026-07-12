@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { errMessage } from '../lib/api'
+import Logo from '../components/Shared/Logo'
 
 const DEMO_ORGS = [
   { name:'ca_admin',  label:'CA Admin',  role:'Trust anchor', dot:'bg-amber-500'   },
@@ -65,20 +67,20 @@ export default function LoginPage() {
   const [demoLoading, setDemoLoading] = useState('')
 
   const redirect = (role) =>
-    navigate(role === 'ca_admin' ? '/admin' : role === 'auditor' ? '/auditor' : '/vendor')
+    navigate(['ca_admin','super_admin','admin'].includes(role) ? '/admin' : role === 'auditor' ? '/auditor' : '/vendor')
 
   const handleLogin = async (e) => {
     e.preventDefault()
     if (!certPem.trim()) { setError('Paste your certificate PEM, or use a demo org below.'); return }
     setError(''); setLoading(true)
     try { const s = await login(certPem.trim()); redirect(s.role) }
-    catch (err) { setError(err.response?.data?.detail || 'Certificate verification failed.') }
+    catch (err) { setError(errMessage(err, 'Certificate verification failed.')) }
     finally { setLoading(false) }
   }
   const handleQuick = async (name) => {
     setDemoLoading(name); setError('')
     try { const s = await quickLogin(name); redirect(s.role) }
-    catch (err) { setError(err.response?.data?.detail || 'Demo login failed. Restart backend to auto-seed.') }
+    catch (err) { setError(errMessage(err, 'Demo login failed. Restart backend to auto-seed.')) }
     finally { setDemoLoading('') }
   }
 
@@ -88,11 +90,8 @@ export default function LoginPage() {
       <div className="flex items-start lg:items-center justify-center px-6 py-10 overflow-y-auto min-h-screen">
         <div className="w-full max-w-[380px] my-auto">
           {/* Logo */}
-          <div className="flex items-center gap-2 mb-10">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-              <span className="text-white text-[13px] font-bold">A</span>
-            </div>
-            <span className="text-[15px] font-semibold text-gray-900 dark:text-white">Attestr</span>
+          <div className="flex items-center mb-10">
+            <Logo className="h-10" />
           </div>
 
           <p className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 tracking-widest uppercase mb-3">
@@ -105,10 +104,48 @@ export default function LoginPage() {
 
           <form onSubmit={handleLogin} className="space-y-3">
             <div>
-              <label className="block text-[11.5px] font-medium text-gray-600 dark:text-neutral-400 mb-1.5">Certificate PEM</label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-[11.5px] font-medium text-gray-600 dark:text-neutral-400">Certificate PEM</label>
+                <label className="text-[11px] font-medium text-blue-600 hover:text-blue-700 cursor-pointer">
+                  Upload .pem
+                  <input type="file" accept=".pem,.crt,.cer,.txt" className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      e.target.value = ''            // reset so re-picking the same file fires again
+                      if (!file) return
+                      const reader = new FileReader()
+                      reader.onload = () => {
+                        const text = String(reader.result || '').trim()
+                        if (text.includes('PRIVATE KEY')) {
+                          setError('That looks like your private key. Upload your certificate (.pem) instead — the one beginning with “BEGIN CERTIFICATE”.')
+                          return
+                        }
+                        if (!text.includes('BEGIN CERTIFICATE')) {
+                          setError("That file doesn't look like a certificate PEM.")
+                          return
+                        }
+                        setError(''); setCertPem(text)
+                      }
+                      reader.onerror = () => setError('Could not read that file. Try again or paste the PEM.')
+                      reader.readAsText(file)
+                    }}/>
+                </label>
+              </div>
               <textarea
                 value={certPem} onChange={e => setCertPem(e.target.value)} rows={4}
-                placeholder={"-----BEGIN CERTIFICATE-----\nMIICKD...\n-----END CERTIFICATE-----"}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  const file = e.dataTransfer.files?.[0]; if (!file) return
+                  const reader = new FileReader()
+                  reader.onload = () => {
+                    const text = String(reader.result || '').trim()
+                    if (text.includes('PRIVATE KEY')) { setError('That looks like your private key. Upload your certificate instead.'); return }
+                    setError(''); setCertPem(text)
+                  }
+                  reader.readAsText(file)
+                }}
+                placeholder={"Paste, upload, or drag your certificate .pem here\n-----BEGIN CERTIFICATE-----\nMIICKD...\n-----END CERTIFICATE-----"}
                 className="w-full font-mono text-[11px] bg-gray-50 dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 rounded-lg px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-700 dark:text-neutral-300 leading-relaxed placeholder-gray-300 dark:placeholder-neutral-600"/>
               <p className="text-[11px] text-gray-400 dark:text-neutral-500 mt-1.5">🔒 Private key never leaves your device</p>
             </div>

@@ -31,14 +31,23 @@ GF256_EXP = [0] * 512
 GF256_LOG = [0] * 256
 
 def _init_gf256():
-    """Pre-compute exponential and logarithm tables for GF(256)."""
+    """
+    Pre-compute exponential and logarithm tables for GF(256).
+
+    Uses generator 3 (x+1). NOTE: 2 is NOT a generator of GF(256) under the
+    AES polynomial 0x11b — its multiplicative order is only 51, which would
+    leave most log-table entries unset and silently corrupt all field
+    multiplication. 3 is a primitive element (order 255) and walks the whole
+    field, so every nonzero element gets a correct logarithm.
+    """
     x = 1
     for i in range(255):
         GF256_EXP[i] = x
         GF256_LOG[x] = i
-        x <<= 1
+        # multiply x by the generator 3 = (x + 1): (x << 1) ^ x
+        x = (x << 1) ^ x
         if x & 0x100:
-            x ^= 0x11b  # irreducible polynomial
+            x ^= 0x11b  # reduce modulo the irreducible polynomial
     for i in range(255, 512):
         GF256_EXP[i] = GF256_EXP[i - 255]
 

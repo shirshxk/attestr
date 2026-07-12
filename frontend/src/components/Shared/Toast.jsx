@@ -41,14 +41,26 @@ const STYLES = {
   info:    { icon:'i', iconBg:'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400' },
 }
 
+function coerceMessage(message) {
+  if (message == null) return ''
+  if (typeof message === 'string') return message
+  // FastAPI 422 returns detail as an array of {type, loc, msg, input} objects.
+  if (Array.isArray(message)) {
+    return message.map(m => (m && typeof m === 'object' ? (m.msg || JSON.stringify(m)) : String(m))).join('; ')
+  }
+  if (typeof message === 'object') return message.msg || message.detail || JSON.stringify(message)
+  return String(message)
+}
+
 function ToastCard({ message, type, title, onClose }) {
   const s = STYLES[type] || STYLES.info
+  const safeMessage = coerceMessage(message)
   return (
     <div className="flex gap-3 bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 rounded-xl shadow-md px-4 py-3 animate-[slideIn_0.18s_ease-out]">
       <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0 mt-0.5 ${s.iconBg}`}>{s.icon}</div>
       <div className="flex-1 min-w-0">
         {title && <div className="text-[12.5px] font-semibold text-gray-900 dark:text-white mb-0.5">{title}</div>}
-        <div className="text-[12.5px] text-gray-600 dark:text-neutral-300 leading-snug break-words">{message}</div>
+        <div className="text-[12.5px] text-gray-600 dark:text-neutral-300 leading-snug break-words">{safeMessage}</div>
       </div>
       <button onClick={onClose} className="text-gray-300 hover:text-gray-500 dark:text-neutral-600 dark:hover:text-neutral-400 text-[14px] leading-none flex-shrink-0">×</button>
       <style>{`@keyframes slideIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}`}</style>
